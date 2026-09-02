@@ -25,7 +25,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from stats import BY_KEY, POOL, STATS, fmt, rate, wilson
+from stats import BY_KEY, POOL, STATS, fmt, rate, rates_by_player, wilson
 
 DB = Path(__file__).parent / "hands.db"
 
@@ -109,12 +109,19 @@ def profile(con, player, site, baseline=None):
         if not bn:
             continue
         if lo > bhi:
-            out.append((s, n, p, bp, "high"))
+            out.append((s, n, p, bp, "high", lo - bhi))
         elif hi < blo:
-            out.append((s, n, p, bp, "low"))
-    # Biggest gap first: a 20-point deviation is a read, a 3-point one that
-    # happens to clear the test on 900 hands is a curiosity.
-    out.sort(key=lambda r: -abs(r[2] - r[3]))
+            out.append((s, n, p, bp, "low", blo - hi))
+
+    # Ranked by how far apart the two INTERVALS are, not by the gap between
+    # the point estimates. Sorting on the point estimates ranks by sample
+    # size in disguise: a 73% on 26 chances beats a 40% on 600 every time,
+    # so the least reliable figure becomes the headline. That is the exact
+    # failure this project's own post-mortem named -- quoting the extreme of
+    # a distribution as though it were typical. Interval separation charges
+    # a small sample for its width, so a large gap measured on nothing sinks
+    # and a modest gap measured on plenty rises.
+    out.sort(key=lambda r: -r[5])
     return out
 
 
@@ -133,7 +140,7 @@ def show(con, player, site):
 
     print(f"\n  {'stat':22} {'them':>8} {'pool':>8}   read")
     print("  " + "-" * 72)
-    for s, n, p, bp, way in devs:
+    for s, n, p, bp, way, _gap in devs:
         note = EXPLOIT.get(s.key, ("", ""))[0 if way == "high" else 1]
         arrow = "^" if way == "high" else "v"
         print(f"  {s.label:22} {100 * p:6.1f}% {100 * bp:7.1f}% {arrow}  "
@@ -157,13 +164,32 @@ def leaderboard(con, site="coinpoker", limit=15):
         "WHERE site=? AND is_hero=0 AND player IS NOT NULL "
         "GROUP BY player ORDER BY h DESC", (site,)).fetchall()
     eligible = [(p, h) for p, h in everyone if h >= MIN_HANDS]
+    hands_of = dict(eligible)
     print(f"\n{site}: {len(everyone)} opponents seen, "
           f"{len(eligible)} with {MIN_HANDS}+ hands")
 
+    # One pass per stat, not one per player per stat, and the pool baseline
+    # computed once rather than recomputed for all 48 of them.
+    base = f"{POOL} AND site='{site}'"
+    where = f"standard=1 AND site='{site}' AND is_hero=0"
+    devs_of = {p: [] for p, _ in eligible}
+    for s in STATS:
+        bn, bk, bp, blo, bhi = rate(con, s, base)
+        if not bn:
+            continue
+        for player, (n, k) in rates_by_player(con, s, where).items():
+            if player not in devs_of or n < MIN_CHANCES:
+                continue
+            p, lo, hi = wilson(k, n)
+            if lo > bhi:
+                devs_of[player].append((s, n, p, bp, "high", lo - bhi))
+            elif hi < blo:
+                devs_of[player].append((s, n, p, bp, "low", blo - hi))
+
     rows = []
-    for p, h in eligible:
-        devs = profile(con, p, site)
-        rows.append((len(devs), h, p, devs))
+    for player, devs in devs_of.items():
+        devs.sort(key=lambda r: -r[5])
+        rows.append((len(devs), hands_of[player], player, devs))
     rows.sort(reverse=True, key=lambda r: (r[0], r[1]))
 
     none = sum(1 for r in rows if r[0] == 0)
@@ -175,7 +201,7 @@ def leaderboard(con, site="coinpoker", limit=15):
         if not devs:
             top = "-- plays like the pool --"
         else:
-            s, n, pr, bp, way = devs[0]
+            s, n, pr, bp, way, _gap = devs[0]
             top = (f"{s.label} {100 * pr:.0f}% vs {100 * bp:.0f}% "
                    f"({'high' if way == 'high' else 'low'}, n={n})")
         print(f"  {p:22} {h:6d} {count:6d}   {top}")
@@ -199,7 +225,7 @@ def check(db_path=DB):
     #     applied its own rule.
     checked = bad = 0
     for count, h, p, devs in rows:
-        for s, n, pr, bp, way in devs:
+        for s, n, pr, bp, way, _gap in devs:
             _, _, _, lo, hi = rate(con, s, "player=? AND standard=1", (p,))
             _, _, _, blo, bhi = rate(con, s, f"{POOL} AND site='coinpoker'")
             checked += 1

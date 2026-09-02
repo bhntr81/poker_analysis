@@ -131,9 +131,12 @@ STATS = [
          "action='F'", group="flop",
          note="the preflop raiser, bet into before they could continue"),
     Stat("donk_flop", "donk flop",
-         "street='flop' AND is_pfa=0 AND first_in=1 AND facing='check'",
+         "street='flop' AND is_pfa=0 AND first_in=1 AND facing='check' "
+         "AND pot_type<>'limped'",
          "agg=1", group="flop",
-         note="betting into the player who raised preflop"),
+         note="betting into the player who raised preflop -- so a limped "
+              "pot is not a chance to do it, there being no raiser to donk "
+              "into, and 903 of 3,782 chances used to be limped pots"),
     Stat("checkraise_flop", "check-raise flop",
          "street='flop' AND facing='bet' AND first_in=0 AND is_ip=0",
          "agg=1", group="flop"),
@@ -149,8 +152,9 @@ STATS = [
          note="the preflop raiser betting a turn after checking the flop"),
     Stat("probe_turn", "probe turn",
          "street='turn' AND is_pfa=0 AND checked_to=1 AND first_in=1 "
-         "AND facing='check'", "agg=1", group="turn",
-         note="betting a turn the preflop raiser gave up on"),
+         "AND facing='check' AND pot_type<>'limped'", "agg=1", group="turn",
+         note="betting a turn the preflop raiser gave up on -- which needs "
+              "there to have been a preflop raiser"),
     Stat("float_turn", "float turn",
          "street='turn' AND prev_agg=0 AND is_ip=1 AND facing='check'",
          "agg=1", group="turn",
@@ -228,6 +232,38 @@ def rate(con, stat, where="1=1", params=()):
     n, k = n or 0, k or 0
     p, lo, hi = wilson(k, n)
     return n, k, p, lo, hi
+
+
+def rates_by_player(con, stat, where="1=1", params=()):
+    """
+    Every player's (n, k) for one stat, in a single pass over the table.
+
+    Asking `rate` once per player is the obvious way to build a report over
+    a pool, and it is why the first opponent leaderboard took eleven minutes:
+    48 players times 35 stats is 1,680 full scans of 93,600 rows to answer a
+    question SQL will answer 35 times with a GROUP BY. A report nobody waits
+    for is a report nobody reads, so the grouping happens in the database.
+    """
+    if isinstance(stat, str):
+        stat = BY_KEY[stat]
+    table = "decisions" if stat.source == "d" else "spots"
+    if stat.source == "s":
+        sql = (f"SELECT player, SUM({stat.chance}), "
+               f"SUM({stat.chance} AND {stat.action}) FROM spots "
+               f"WHERE ({where}) AND player IS NOT NULL GROUP BY player")
+    elif stat.per == "hand":
+        sql = (f"SELECT player, COUNT(*), SUM(did) FROM ("
+               f"  SELECT player, hand_id, seat,"
+               f"  MAX(CASE WHEN {stat.action} THEN 1 ELSE 0 END) did"
+               f"  FROM {table} WHERE ({stat.chance}) AND ({where})"
+               f"  AND player IS NOT NULL GROUP BY hand_id, seat)"
+               f" GROUP BY player")
+    else:
+        sql = (f"SELECT player, COUNT(*), "
+               f"SUM(CASE WHEN {stat.action} THEN 1 ELSE 0 END) "
+               f"FROM {table} WHERE ({stat.chance}) AND ({where}) "
+               f"AND player IS NOT NULL GROUP BY player")
+    return {p: (n or 0, k or 0) for p, n, k in con.execute(sql, params)}
 
 
 def compare(con, stat, where_a, where_b, params_a=(), params_b=()):
