@@ -86,6 +86,13 @@ EXPLOIT = {
                      "folds before showdown -- bluff rivers"),
     "wwsf":         ("wins after the flop often -- a real postflop player",
                      "gives up after the flop"),
+    "flop_agg":     ("bets and raises flops constantly -- call and raise back "
+                     "wider", "passive on the flop; bet into them freely"),
+    "cbet_river":   ("fires rivers after betting the turn; call wider",
+                     "shuts down on rivers -- their turn bet is not a "
+                     "commitment"),
+    "squeeze":      ("squeezes often; flat less in front of them",
+                     "never squeezes; flat in front of them freely"),
 }
 
 
@@ -126,9 +133,9 @@ def profile(con, player, site, baseline=None):
 
 
 def show(con, player, site):
-    hands = con.execute(
-        "SELECT COUNT(DISTINCT hand_id) FROM decisions WHERE player=?",
-        (player,)).fetchone()[0]
+    hands, is_hero = con.execute(
+        "SELECT COUNT(DISTINCT hand_id), MAX(is_hero) FROM decisions "
+        "WHERE player=?", (player,)).fetchone()
     print(f"\n{player}   ({site}, {hands} hands)")
     print("=" * (len(player) + 24))
 
@@ -138,7 +145,23 @@ def show(con, player, site):
         print("  as this many hands can tell. That is a finding, not a gap.")
         return 0
 
-    print(f"\n  {'stat':22} {'them':>8} {'pool':>8}   read")
+    # The same sentence means opposite things depending on who is reading it.
+    # "raises constantly -- their range is wide, not strong" is advice for
+    # playing AGAINST this player; pointed at yourself it is a description of
+    # how the pool can play against you. Useful either way, and dishonest if
+    # the heading does not say which.
+    if is_hero:
+        print("\n  This is YOU against the pool, so read the last column as")
+        print("  what the pool could do about you -- not as a list of leaks.")
+        print("\n  A leak is a difference from correct play, and the pool is")
+        print("  not correct: it under-raises at every depth (see poptree.py).")
+        print("  Being unlike it is usually right. `leaks.py` prices hero")
+        print("  against the solver, which is the report that finds money.")
+        header = "how the pool could use it"
+    else:
+        header = "read"
+
+    print(f"\n  {'stat':22} {'them':>8} {'pool':>8}   {header}")
     print("  " + "-" * 72)
     for s, n, p, bp, way, _gap in devs:
         note = EXPLOIT.get(s.key, ("", ""))[0 if way == "high" else 1]
