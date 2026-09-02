@@ -65,8 +65,13 @@ def _seat_facts(con):
     out = {}
     for hid, seat, combo, bb, n, hero, player, pos in con.execute(
             "SELECT hand_id, seat, combo, bb, n_players, is_hero, player, "
+            # Ignition only. The solutions cached in this database are for
+            # one gametype -- 6-max NL25 with rake -- and CoinPoker hands run
+            # from $0.02 to $0.50, so pricing them against this tree would be
+            # pricing them at the wrong stake. poptree, leaks and
+            # bestresponse all read this, so the filter belongs here.
             "position FROM spots WHERE fmt IN ('RING','ZONE') "
-            "AND bb IS NOT NULL"):
+            "AND site='ignition' AND bb IS NOT NULL"):
         out[(hid, seat)] = {"combo": combo, "bb": bb, "n_players": n,
                             "is_hero": hero, "player": player, "position": pos}
     return out

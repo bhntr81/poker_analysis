@@ -53,7 +53,10 @@ def hand_rows(con):
     for hid, seat, cardstr, bb, n, board in con.execute(
             "SELECT s.hand_id, s.seat, s.cards, s.bb, s.n_players, h.board "
             "FROM spots s JOIN hands h USING(hand_id) "
+            # Ignition only, for the same reason walk.py is: the cached
+            # solutions are NL25-with-rake and nothing else.
             "WHERE s.is_hero=1 AND s.saw_flop=1 AND s.fmt IN ('RING','ZONE') "
+            "AND s.site='ignition' "
             "AND s.bb IS NOT NULL AND h.standard=1 AND s.cards IS NOT NULL "
             "AND h.board!=''"):
         hero[hid] = {"seat": seat, "cards": cardstr, "bb": bb,

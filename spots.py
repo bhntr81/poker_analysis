@@ -453,16 +453,24 @@ def check(db_path=DB):
             ("cbet flop", "cbet", "cbet_chance"),
             ("fold to cbet", "fold_to_cbet", "faced_cbet"),
             ("WTSD", "wtsd", "saw_flop"), ("W$SD", "wsd", "wtsd")):
-        got, tot = one("SELECT SUM({}), SUM({}) FROM spots "
-                       "WHERE fmt='RING' AND n_players>=5".format(num, den))
-        got, tot = got or 0, tot or 0
-        print("  {:14} {:5.1f}%   n={}".format(
-            label, 100 * got / tot if tot else 0, tot))
+        # Per site. Averaging two pools gives a figure that describes
+        # neither, and the whole point of these lines is that a broken
+        # derivation shows up as a number with the wrong shape.
+        cells = []
+        for site in ("ignition", "coinpoker"):
+            got, tot = one("SELECT SUM({}), SUM({}) FROM spots WHERE "
+                           "fmt='RING' AND n_players>=5 AND site='{}'".format(
+                               num, den, site))
+            got, tot = got or 0, tot or 0
+            cells.append("{:5.1f}% n={:<6d}".format(
+                100 * got / tot if tot else 0, tot))
+        print("  {:14} {}".format(label, "   ".join(cells)))
 
     print("\nopen sizes actually used, ring:")
     for size, cnt in con.execute(
             "SELECT ROUND(open_size_bb,1), COUNT(*) FROM spots WHERE rfi=1 "
-            "AND fmt='RING' GROUP BY 1 ORDER BY 2 DESC LIMIT 8"):
+            "AND fmt='RING' AND site='ignition' GROUP BY 1 "
+            "ORDER BY 2 DESC LIMIT 8"):
         print("  {}bb  {}".format(size, cnt))
 
     print("\nflop bet sizes as a fraction of pot:")
@@ -474,7 +482,8 @@ def check(db_path=DB):
     print("\nhero, by position (bb/100):")
     for pos, n, bb100 in con.execute(
             "SELECT position, COUNT(*), 100.0*SUM(net_bb)/COUNT(*) FROM spots "
-            "WHERE is_hero=1 AND fmt='RING' GROUP BY position ORDER BY 3"):
+            "WHERE is_hero=1 AND fmt='RING' AND site='ignition' "
+            "GROUP BY position ORDER BY 3"):
         print("  {:4} {:5d}  {:+8.1f}".format(pos, n, bb100))
 
     print("\nseat identities that lasted long enough to profile:")

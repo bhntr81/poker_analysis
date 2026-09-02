@@ -31,7 +31,14 @@ DB = Path(__file__).parent / "hands.db"
 
 # The pool, as opposed to hero: cash ring games of a size where the position
 # names mean what they usually mean.
-POOL = "is_hero=0 AND fmt='RING' AND n_players>=5"
+#
+# Ignition only, and that is not a default -- it is the premise. Everything
+# below counts the combos the pool folded, which can only be done on a site
+# that shows folded hands. CoinPoker shows 23% of them. Loading it made
+# `fmt='RING'` match both sites, and this filter silently went from a pool
+# with 100% of its hole cards to one with 33%, which would have quietly
+# rewritten every revealed range in this module.
+POOL = "is_hero=0 AND fmt='RING' AND n_players>=5 AND site='ignition'"
 
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
 RANKS = "AKQJT98765432"
