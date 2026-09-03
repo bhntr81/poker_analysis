@@ -72,6 +72,66 @@ table of decisions.
 
 ## Asking questions
 
+### `query.py` — the one you will use most
+
+Every stat has always taken a filter; nothing could supply one. This can.
+
+```bash
+python query.py --help                                  every filter there is
+python query.py --pool --pot 3bet --street flop --ip    what the pool does there
+python query.py --hero --board mono --results           what it made you
+python query.py --player dblj32 --pos BTN --hands       which hands they were
+python query.py --where "eff_bb > 150 AND fl_paired=1" --stats
+```
+
+Filters combine freely, and there are three things to ask for.
+
+**`--stats`** (the default) runs every stat that *can* occur inside the
+filter, and silently drops the ones that cannot — asking for a preflop stat
+inside `--street flop` gives nothing, which is correct rather than a bug.
+
+```
+filter: pool, site coinpoker, pot 3bet, street flop, ip
+524 decisions match
+
+  [flop]
+  cbet flop                70.7%    +/-7   n=184
+  fold to cbet             42.6%    +/-7   n=190
+  [sizing]
+  bets a third or less     50.6%    +/-7   n=170
+```
+
+**`--results`** is the money, and it works differently on purpose. Money is
+a property of a whole **hand**; "in position on a monotone flop" is a
+property of a **decision**. So the filter selects decisions, and the money
+is then summed over the hands those decisions occurred in — because a player
+in position on a monotone flop won or lost the whole pot, not the part of it
+after the flop.
+
+```
+filter: hero, site coinpoker, board mono
+  hands                  69
+  net                +307.4 bb   ($+47.34)
+  per 100 hands      +445.6 bb/100
+  error on that         141 bb/100   <- and this is why
+```
+
+That last line is not decoration. One hand's result has a standard deviation
+around 11.7bb, so the error on a win rate is roughly `1170/sqrt(n)`. At 69
+hands it is ±141bb/100, which is wider than the +445 it is qualifying.
+**Win rates need thousands of hands. Frequencies need hundreds.** Filter
+hard and you will be looking at frequencies, which is the right thing to
+look at anyway.
+
+**`--hands`** lists the hands themselves, newest first, with the board and
+what each one made.
+
+Filters worth knowing: `--hero`/`--pool`, `--site`, `--player`, `--pos`,
+`--street`, `--pot`, `--facing`, `--ip`/`--oop`, `--deep N`/`--short N`,
+`--board mono,paired,connected,...`, `--combo`, `--multiway`/`--headsup`,
+`--since`/`--until`, and `--where` for raw SQL over `decisions` when the
+named flags run out. `--help` prints the full list with the SQL each becomes.
+
 ### `stats.py` — the stat engine
 
 ```bash

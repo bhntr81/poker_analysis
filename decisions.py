@@ -240,7 +240,14 @@ def build(db_path=DB):
                 a["action"], agg, allin, amount, total,
                 round(pot_frac, 4) if pot_frac is not None else None,
                 round((total or amount) / bb, 3) if bb and (total or amount) else None,
-                *texture))
+                # The flop's texture belongs only to decisions made once the
+                # flop was down. Stamped on preflop rows as well it reads as
+                # "this preflop decision was made on a monotone flop", which
+                # is information from the future -- and a filter for monotone
+                # flops then selects preflop folds in hands that happened to
+                # run out monotone. That returned 194 hands of which 69 had
+                # seen a flop at all.
+                *(texture if street != "preflop" else (None,) * 5)))
 
             first_of_street = False
             acted_this.add(seat)

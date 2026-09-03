@@ -1,12 +1,26 @@
 # poker_analysis
 
-A poker tracker built from scratch — the analysis half of a Hand2Note, over
-our own hand histories from **CoinPoker** and **Ignition**.
+A poker tracker built from scratch, over our own hand histories from
+**CoinPoker** and **Ignition**.
 
-A tracker is a database, a stat engine, and a way to look at both. This is
-those three things. There is no HUD overlay yet, and that is deliberate: the
-overlay shows at the table what a report shows away from it, and the
-analysis is where the money is.
+Import hands, build a database, and ask it anything about any player or the
+pool, filtered any way you like. It never tells you what is *correct*. It
+tells you what people **do**.
+
+## Scope, decided rather than drifted into
+
+**The tracking and filtering half of a Hand2Note, and nothing else.**
+
+  * **No HUD.** No overlay, no popups, no reading the table while you play.
+  * **No solver.** Hand2Note contains none, and neither does this. A solver
+    answers "what is correct"; a tracker answers "what happened". Mixing the
+    two is how a tracker turns into a different product.
+
+The solver modules still in this repo — `walk.py`, `leaks.py`, `poptree.py`,
+`bestresponse.py`, `postflop.py` and the `gtowizard` package — are that
+different product. They work and they were expensive to build, so they are
+not deleted, but they are **not this program** and no work here is aimed at
+them.
 
 ## Why build one instead of buying one
 
@@ -41,15 +55,23 @@ spots.py        one row per player per hand          --check
 decisions.py    one row per decision, 50 columns     --check
         v
 stats.py        35 stats, defined declaratively      --check
+query.py        ask anything, filtered any way       --check
 profile.py      what one opponent does differently   --check
-check.py        run every check, in dependency order
+population.py   what the pool does, split-half validated  --check
+check.py        run all seven checks, in dependency order
 ```
 
-Plus an older layer, from before the engine existed, that still works and
-still hardcodes its own SQL: `population.py`, `poptree.py`, `leaks.py`,
-`bestresponse.py`, `postflop.py`, `walk.py`. These read GTO Wizard solutions
-cached in the same database and price real decisions against a solver. They
-are next in line to be rebuilt on the stat engine.
+`query.py` is the one you will use most:
+
+```bash
+python query.py --pool --pot 3bet --street flop --ip
+python query.py --hero --board mono --results
+python query.py --player dblj32 --pos BTN --hands
+```
+
+Out of scope but still present: `walk.py`, `leaks.py`, `poptree.py`,
+`bestresponse.py`, `postflop.py` and `gtowizard/`, which price play against
+a solver. See **Scope** above.
 
 ## The database, as it stands
 

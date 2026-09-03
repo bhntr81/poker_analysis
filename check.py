@@ -10,6 +10,10 @@ fine and the set of them is wrong.
 
     python check.py            run everything, exit non-zero if anything fails
     python check.py --quiet    just the verdicts
+
+Not every module is here. The solver modules are out of the project's scope
+and have no checks; that they sat broken for a whole run cycle without
+anybody noticing is the argument for a module being in this list.
 """
 
 import subprocess
@@ -26,6 +30,8 @@ CHECKS = [
     ("decisions", "the per-decision derivation, against spots exactly"),
     ("stats", "the stat engine, against spots where they overlap"),
     ("profile", "opponent profiles: deviations really clear their intervals"),
+    ("query", "the filter surface: every filter runs, and every one narrows"),
+    ("population", "pool findings survive being split in half"),
 ]
 
 

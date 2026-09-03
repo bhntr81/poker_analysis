@@ -1,9 +1,16 @@
 # poker_analysis
 
-A poker tracker over CoinPoker and Ignition hand histories — the analysis
-half of a Hand2Note, built from scratch.
+A poker tracker over CoinPoker and Ignition hand histories, built from
+scratch.
 
-Not the screenshot reader. That is a separate project in
+**Scope, and it is narrow on purpose: the tracking and filtering half of a
+Hand2Note. No HUD, no solver.** A tracker says what people do; a solver says
+what is correct. The solver modules here (`walk`, `leaks`, `poptree`,
+`bestresponse`, `postflop`, `gtowizard/`) are a different product that
+happens to share the folder. They work, they are not deleted, and no work is
+aimed at them.
+
+Not the screenshot reader either. That is a separate project in
 `Desktop/gto_pipeline`. If a module named `card_reader`, `table_ocr`,
 `observe` or `spot` is wanted, it is in that repo, not this one.
 
@@ -73,7 +80,7 @@ before any schema change.
 ## Verification — and these are not formalities
 
 ```bash
-python check.py                 # all five module checks, in dependency order
+python check.py                 # all seven module checks, in dependency order
 python population.py --check    # split-half validation of the pool findings
 ```
 
@@ -112,6 +119,14 @@ Facts that stay true, and that have each been got wrong at least once:
 - **MTT is excluded from anything involving money** — tournament chips are
   not dollars — and from the derivation cross-checks, because its histories
   sometimes begin mid-hand.
+- **Flop texture is NULL on preflop rows.** A preflop decision was not made
+  on a monotone flop; the flop had not come. Stamping it there let a
+  monotone-flop filter select preflop folds in hands that happened to run
+  out monotone — 194 "hands", 69 of which had seen a flop.
+- **Money is a property of a hand, a spot is a property of a decision.** So
+  `query.py --results` selects decisions and then sums whole hands. A player
+  in position on a monotone flop won or lost the whole pot, not the part
+  after the flop.
 
 ## Adding a stat
 
