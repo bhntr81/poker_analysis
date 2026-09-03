@@ -39,6 +39,12 @@ from walk import walk
 
 DB = Path(__file__).parent / "hands.db"
 
+# How many times a spot must have come up before losing money in it is a
+# habit rather than an accident. Five is low, and deliberately so -- this is
+# hero's own play, where the whole corpus is 3,208 decisions spread over
+# every position and depth, so a stricter bar would empty the table.
+MIN_SPOTS = 5
+
 PREFLOP_VIEW = """
 DROP VIEW IF EXISTS bets_pf;
 CREATE VIEW bets_pf AS
@@ -127,15 +133,29 @@ def report(list_wanted=False):
         g["loss"] += r["loss"]
         if r["loss"] > 0.5:
             g["eg"].append(r)
+    # A leak is something done repeatedly. Ranking these purely by total bb
+    # lost put a SINGLE hand at the top of the table -- one BB fold worth
+    # 3.2bb outranking a habit repeated 29 times -- which is a one-off
+    # dressed as a tendency. Costly one-offs are not hidden by this: they
+    # are exactly what the WORST SINGLE DECISIONS section below lists.
+    recurring = {k: g for k, g in by.items()
+                 if g["n"] >= MIN_SPOTS and g["loss"] >= 0.5}
+    oneoffs = sum(1 for k, g in by.items()
+                  if g["n"] < MIN_SPOTS and g["loss"] >= 0.5)
     print("{:5} {:>6} {:>7} {:>6} {:>9} {:>7}  {}".format(
         "pos", "did", "better", "n", "bb lost", "each", "worst hands"))
-    for (pos, chose, best), g in sorted(by.items(), key=lambda kv: -kv[1]["loss"])[:15]:
-        if g["loss"] < 0.5:
-            continue
+    for (pos, chose, best), g in sorted(
+            recurring.items(), key=lambda kv: -kv[1]["loss"])[:15]:
         eg = sorted(g["eg"], key=lambda r: -r["loss"])[:4]
         print("{:5} {:>6} {:>7} {:6d} {:9.1f} {:7.2f}  {}".format(
             pos, chose, best, g["n"], g["loss"], g["loss"] / g["n"],
             " ".join("{}({:.1f})".format(r["combo"], r["loss"]) for r in eg)))
+    if not recurring:
+        print("  (nothing repeated {} times or more cost as much as half a "
+              "big blind)".format(MIN_SPOTS))
+    print("\n{} further spots cost 0.5bb+ but happened fewer than {} times, "
+          "so they\nare listed below as incidents rather than ranked here as "
+          "habits.".format(oneoffs, MIN_SPOTS))
 
     print("\n" + "=" * 68)
     print("WORST SINGLE DECISIONS")

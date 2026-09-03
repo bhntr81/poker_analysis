@@ -142,7 +142,8 @@ def walk(con, gto, fetch=False, record_wanted=False):
             mine = bool(me.get("is_hero"))
             tally["decisions"] += 1
             tally["hero_decisions"] += mine
-            facing = sum(1 for p in key.split("-") if p.startswith("R"))
+            facing = sum(1 for p in preflop_of(key).split("-")
+                         if p.startswith("R"))
             code, gap = snap(a, node, me.get("bb") or 1.0)
             if code is None:
                 # The action the player took does not exist in the solved
@@ -215,6 +216,23 @@ def walk(con, gto, fetch=False, record_wanted=False):
             gto.want(key, hits)
     tally["dropped_by_facing"] = dropped
     return rows, tally, wanted
+
+
+def preflop_of(key):
+    """
+    The preflop actions out of a node key, whichever shape the key is.
+
+    A node key used to be the preflop action string and nothing else. Adding
+    postflop solutions made it a tuple -- preflop, board, flop, turn, river --
+    because a preflop line no longer identifies a node once a board is
+    involved. `start_node` still hands back a bare string for the root, so
+    both shapes are live in one walk, and code that counts the raises in
+    front of a player has to accept either.
+
+    This is why `leaks.py` stopped running: it called `.split` on a key that
+    had quietly become a tuple, and nothing had run it since.
+    """
+    return key[0] if isinstance(key, tuple) else key
 
 
 def kind(code):

@@ -42,6 +42,7 @@ import sys
 from pathlib import Path
 
 from gtowizard import Solver
+from walk import preflop_of
 from walk import kind, walk
 
 DB = Path(__file__).parent / "hands.db"
@@ -82,7 +83,7 @@ def pot_before(node):
     """
     put = {p: 0.0 for p in ORDER}
     put["SB"], put["BB"] = 0.5, 1.0
-    for i, code in enumerate([c for c in node.split("-") if c]):
+    for i, code in enumerate([c for c in preflop_of(node).split("-") if c]):
         if i >= len(ORDER):
             return None                  # second orbit: not our case
         seat = ORDER[i]
@@ -231,7 +232,7 @@ def grid(res, field="best"):
 def spot_label(key):
     """Who opened, for how much, and who is now deciding."""
     opener, open_size = None, "?"
-    for i, code in enumerate([c for c in key.split("-") if c]):
+    for i, code in enumerate([c for c in preflop_of(key).split("-") if c]):
         if code.startswith("R"):
             opener, open_size = ORDER[i], code.lstrip("R")
     return opener, open_size
@@ -245,9 +246,10 @@ def report(show_ev=False):
         found = []
         skipped = 0
         for key in sorted(gto.cached(), key=len):
-            if sum(1 for p in key.split("-") if p.startswith("R")) != 1:
+            if sum(1 for p in preflop_of(key).split("-")
+               if p.startswith("R")) != 1:
                 continue
-            if len(key.split("-")) > 6:
+            if len(preflop_of(key).split("-")) > 6:
                 continue
             res = exploit(key, None, rows, gto, show_ev)
             if res:
