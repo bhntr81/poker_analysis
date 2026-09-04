@@ -77,7 +77,7 @@ spots.py                        one row per player per hand
         v
 decisions.py                    one row per decision
         v
-stats.py / profile.py           read only, never rebuild
+stats.py / opponents.py           read only, never rebuild
 ```
 
 ---

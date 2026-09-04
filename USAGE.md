@@ -178,12 +178,12 @@ The pattern above is typical and worth internalising: **preflop stats are
 usable at a few hundred hands, postflop stats are not.** A player with 780
 hands gives you a solid 3-bet number and a meaningless cbet number.
 
-### `profile.py` — what one opponent does differently
+### `opponents.py` — what one opponent does differently
 
 ```bash
-python profile.py                   # everyone worth a plan, ranked
-python profile.py NAME              # one opponent in full
-python profile.py --check
+python opponents.py                   # everyone worth a plan, ranked
+python opponents.py NAME              # one opponent in full
+python opponents.py --check
 ```
 
 A page of somebody's stats is not a read — most of the numbers on it are

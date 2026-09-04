@@ -10,7 +10,7 @@ Newest first.
 
 ## The first opponent reads, and what running them exposed
 
-`profile.py` had passed its check but had never actually produced a report.
+`opponents.py` had passed its check but had never actually produced a report.
 Running it found three defects that a passing check could not.
 
 ### Fixed — the leaderboard ranked by sample size in disguise
@@ -105,7 +105,7 @@ it catches is not "a module broke" but "a module was rebuilt and the ones
 below it were not", which leaves a database where every table is
 individually fine and the set of them is wrong.
 
-### Added — `profile.py`
+### Added — `opponents.py`
 
 What one opponent does differently from the pool, and what to do about it.
 Reports a stat only when the player's 95% interval and the pool's do not

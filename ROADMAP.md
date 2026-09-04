@@ -278,7 +278,7 @@ much each seat 3-bets, what with, what bluffs they lack, how far from the
 solver, by position. The obstacle is not code, it is that identity on
 Ignition is `table:seat` and only 16 seats have 100+ hands.
 
-**Goal set beforehand:** `profile.py` reports per-seat preflop profiles
+**Goal set beforehand:** `opponents.py` reports per-seat preflop profiles
 against the solver, verified by: (a) every reported deviation carries its own
 error bar, and no seat is described as deviating unless the deviation clears
 twice it; (b) the number of seats clearing that bar is reported explicitly,

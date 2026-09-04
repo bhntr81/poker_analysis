@@ -29,9 +29,10 @@ CHECKS = [
     ("spots", "the per-hand derivation: figures with a known shape"),
     ("decisions", "the per-decision derivation, against spots exactly"),
     ("stats", "the stat engine, against spots where they overlap"),
-    ("profile", "opponent profiles: deviations really clear their intervals"),
+    ("opponents", "opponent profiles: deviations really clear their intervals"),
     ("equity", "the hand evaluator, against published equities"),
     ("query", "the filter surface: every filter runs, and every one narrows"),
+    ("gui", "the page and the command line build the same filter"),
     ("population", "pool findings survive being split in half"),
 ]
 

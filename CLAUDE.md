@@ -71,7 +71,7 @@ Tables are derived from each other. Rebuilding one and not the ones below it
 leaves a database that is consistent nowhere and looks fine everywhere.
 
 ```
-ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  stats.py, profile.py
+ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  stats.py, opponents.py
 ```
 
 `hands.db` is gitignored and is the only copy. `cp hands.db hands.db.bak`

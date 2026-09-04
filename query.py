@@ -191,17 +191,17 @@ def build(argv):
             ", ".join(described) if described else "everything")
 
 
-def show_stats(con, where, label):
-    """Every stat that has anything to say under this filter."""
-    print(f"\nfilter: {label}")
-    print("=" * (len(label) + 8))
+def stats_of(con, where):
+    """
+    Every stat that has anything to say under this filter, as data.
+
+    Separated from the printing because a second front end wants the same
+    numbers in a different shape, and two front ends computing them their own
+    way is how they come to disagree.
+    """
     n_dec = con.execute(
         f"SELECT COUNT(*) FROM decisions WHERE {where}").fetchone()[0]
-    print(f"{n_dec} decisions match\n")
-    if not n_dec:
-        return
-
-    last, shown = None, 0
+    rows = []
     for s in STATS:
         # A spots-sourced stat cannot see a decision's conditions -- there is
         # no street or position-to-act in a per-hand row -- so it is skipped
@@ -211,12 +211,29 @@ def show_stats(con, where, label):
         n, k, p, lo, hi = rate(con, s, where)
         if not n:
             continue
-        if s.group != last:
-            print(f"  [{s.group}]")
-            last = s.group
-        print(f"  {s.label:22} {fmt(n, k, p, lo, hi)}")
-        shown += 1
-    if not shown:
+        rows.append({"key": s.key, "label": s.label, "group": s.group,
+                     "note": s.note, "n": n, "k": k, "pct": 100 * p,
+                     "band": 100 * (hi - lo) / 2})
+    return n_dec, rows
+
+
+def show_stats(con, where, label):
+    """Every stat that has anything to say under this filter."""
+    print(f"\nfilter: {label}")
+    print("=" * (len(label) + 8))
+    n_dec, rows = stats_of(con, where)
+    print(f"{n_dec} decisions match\n")
+    if not n_dec:
+        return
+    last = None
+    for r in rows:
+        if r["group"] != last:
+            print(f"  [{r['group']}]")
+            last = r["group"]
+        thin = " ?" if r["n"] < 30 else "  "
+        print(f"  {r['label']:22} {r['pct']:6.1f}% "
+              f"{'+/-%.0f' % r['band']:>7}{thin} n={r['n']:<6d}")
+    if not rows:
         print("  no stat has a chance to occur inside this filter.")
         print("  (asking for a preflop stat inside --street flop does this)")
 
@@ -243,7 +260,7 @@ LINES = [
 # A graph is drawn once and looked at; half a point of sampling error on one
 # preflop all-in cannot move a line anybody can see, so preflop runouts are
 # sampled more coarsely here than `equity`'s own default.
-GRAPH_SAMPLES = 5000
+GRAPH_SAMPLES = 2000
 
 
 def adjusted(con, pairs):
@@ -257,6 +274,19 @@ def adjusted(con, pairs):
     hands than the one beside it.
     """
     from equity import equity
+
+    # An all-in's equity is a fact about a hand that happened: the cards are
+    # dealt, the board is known, and nothing about it will ever be different.
+    # Recomputing it every time a graph is drawn cost twenty seconds a view,
+    # which is most of what the graph cost at all, so it is worked out once
+    # and kept. Rebuilding the derived tables does not invalidate it, because
+    # what it measures is in the hand history rather than in the derivation.
+    con.execute("CREATE TABLE IF NOT EXISTS hand_ev ("
+                "hand_id TEXT, seat INT, ev_bb REAL, "
+                "PRIMARY KEY (hand_id, seat))")
+    known_ev = {(h, st): v for h, st, v in con.execute(
+        "SELECT hand_id, seat, ev_bb FROM hand_ev")}
+    fresh = []
 
     rows = con.execute(
         "SELECT s.hand_id, s.seat, s.played_at, s.net_bb, s.wtsd, s.bb, "
@@ -277,33 +307,50 @@ def adjusted(con, pairs):
     for hid, seat, when, net_bb, wtsd, bb, put_in, board in rows:
         ev_bb = net_bb
         street = allin_street.get(hid)
+        if (hid, seat) in known_ev:
+            ev_bb = known_ev[(hid, seat)]
+            adjusted_n += 1 if ev_bb != net_bb else 0
+            out.append((when, net_bb, bool(wtsd), ev_bb))
+            continue
         if street and street != "river" and bb:
             live = con.execute(
                 "SELECT seat, cards, won FROM spots WHERE hand_id=? "
                 "AND folded_on IS NULL AND cards IS NOT NULL", (hid,)).fetchall()
             if len(live) == 2 and all(len(c.split()) == 2 for _, c, _ in live):
-                take = {"preflop": 0, "flop": 3, "turn": 4}[street]
-                at_allin = " ".join((board or "").split()[:take])
-                pot = sum(r[2] or 0 for r in live) or 0.0
-                key = (tuple(sorted(c for _, c, _ in live)), at_allin)
-                if key not in cache:
-                    cache[key] = equity([c for _, c, _ in live], at_allin,
-                                        samples=GRAPH_SAMPLES)
-                shares = cache[key]
+                # Whether this player is one of the two comes first. They may
+                # have folded long before the other two got it in, and pricing
+                # a runout they were not in is work thrown away -- work that
+                # was being redone on every view, because a result that is
+                # discarded is never cached.
                 mine = next((i for i, (st, _, _) in enumerate(live)
                              if st == seat), None)
+                pot = sum(r[2] or 0 for r in live) or 0.0
                 if mine is not None and pot:
-                    ev_bb = round((shares[mine] * pot - put_in) / bb, 3)
+                    take = {"preflop": 0, "flop": 3, "turn": 4}[street]
+                    at_allin = " ".join((board or "").split()[:take])
+                    key = (tuple(sorted(c for _, c, _ in live)), at_allin)
+                    if key not in cache:
+                        cache[key] = equity([c for _, c, _ in live], at_allin,
+                                            samples=GRAPH_SAMPLES)
+                    ev_bb = round((cache[key][mine] * pot - put_in) / bb, 3)
                     adjusted_n += 1
+                    fresh.append((hid, seat, ev_bb))
             else:
                 skipped += 1
         out.append((when, net_bb, bool(wtsd), ev_bb))
+    if fresh:
+        con.executemany("INSERT OR REPLACE INTO hand_ev VALUES (?,?,?)", fresh)
+        con.commit()
     return out, adjusted_n, skipped
 
 
-def svg(series, label, note):
+def svg(series, label, note, dark=False):
     """The four lines as one standalone SVG, no library and no dependency."""
     W, H, L, R, T, B = 960, 440, 70, 210, 46, 40
+    # The line colours read on either ground; everything around them does not.
+    ink, grid, dim, paper = (("#d8dbe0", "#2a2f38", "#8b929c", "#14161a")
+                             if dark else
+                             ("#111111", "#e6e6e3", "#888888", "#fbfbfa"))
     n = len(series["total"])
     if n < 2:
         return "<p>not enough hands to draw a line</p>"
@@ -321,9 +368,9 @@ def svg(series, label, note):
     parts = [
         f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" '
         f'width="100%" style="max-width:{W}px;font-family:system-ui,sans-serif">',
-        f'<rect width="{W}" height="{H}" fill="#fbfbfa"/>',
-        f'<text x="{L}" y="24" font-size="15" font-weight="600">{label}</text>',
-        f'<text x="{L}" y="40" font-size="11" fill="#666">{note}</text>',
+        f'<rect width="{W}" height="{H}" fill="{paper}"/>',
+        f'<text x="{L}" y="24" font-size="15" font-weight="600" fill="{ink}">{label}</text>',
+        f'<text x="{L}" y="40" font-size="11" fill="{dim}">{note}</text>',
     ]
     # Horizontal guides, and the zero line drawn darker because crossing it
     # is the only thing on this chart that changes the answer.
@@ -331,11 +378,11 @@ def svg(series, label, note):
         v = lo + span * frac / 4
         parts.append(
             f'<line x1="{L}" y1="{y(v):.1f}" x2="{W - R}" y2="{y(v):.1f}" '
-            f'stroke="#e6e6e3"/>'
-            f'<text x="{L - 8}" y="{y(v) + 4:.1f}" font-size="11" fill="#888" '
+            f'stroke="{grid}"/>'
+            f'<text x="{L - 8}" y="{y(v) + 4:.1f}" font-size="11" fill="{dim}" '
             f'text-anchor="end">{v:,.0f}</text>')
     parts.append(f'<line x1="{L}" y1="{y(0):.1f}" x2="{W - R}" y2="{y(0):.1f}" '
-                 f'stroke="#999" stroke-dasharray="3,3"/>')
+                 f'stroke="{dim}" stroke-dasharray="3,3"/>')
     for i, (key, colour, why) in enumerate(LINES):
         pts = " ".join(f"{x(j):.1f},{y(v):.1f}" for j, v in
                        enumerate(series[key]))
@@ -346,15 +393,15 @@ def svg(series, label, note):
         parts.append(
             f'<line x1="{W - R + 6}" y1="{ly - 4}" x2="{W - R + 26}" '
             f'y2="{ly - 4}" stroke="{colour}" stroke-width="2.5"/>'
-            f'<text x="{W - R + 32}" y="{ly}" font-size="12">'
+            f'<text x="{W - R + 32}" y="{ly}" font-size="12" fill="{ink}">'
             f'{key.replace("_", " ")}  <tspan font-weight="600">{end:+,.0f}'
             f'</tspan></text>'
-            f'<text x="{W - R + 32}" y="{ly + 14}" font-size="10" fill="#777">'
+            f'<text x="{W - R + 32}" y="{ly + 14}" font-size="10" fill="{dim}">'
             f'{why}</text>')
     parts.append(f'<text x="{(L + W - R) / 2}" y="{H - 10}" font-size="11" '
-                 f'fill="#888" text-anchor="middle">{n:,} hands</text>')
+                 f'fill="{dim}" text-anchor="middle">{n:,} hands</text>')
     parts.append(f'<text x="{L - 52}" y="{(T + H - B) / 2}" font-size="11" '
-                 f'fill="#888" transform="rotate(-90 {L - 52} '
+                 f'fill="{dim}" transform="rotate(-90 {L - 52} '
                  f'{(T + H - B) / 2})" text-anchor="middle">big blinds</text>')
     parts.append("</svg>")
     return "\n".join(parts)
@@ -366,10 +413,7 @@ def show_graph(con, where, label, out_path="graph.html"):
     if not pairs:
         print("nothing matches")
         return
-    con.execute("CREATE TEMP TABLE IF NOT EXISTS _sel (hand_id TEXT, seat INT)")
-    con.execute("DELETE FROM _sel")
-    con.executemany("INSERT INTO _sel VALUES (?,?)", pairs)
-
+    select_into(con, pairs)
     hands, adj, skipped = adjusted(con, pairs)
     if len(hands) < 2:
         print("not enough hands to draw a line")
@@ -506,6 +550,38 @@ def matching_seats(con, where):
     ).fetchall()
 
 
+def select_into(con, pairs):
+    """
+    Park a set of (hand, seat) pairs in a temp table to join against.
+
+    The index is not an optimisation, it is the difference between the graph
+    taking half a second and taking half a minute: without it every join
+    against this table is a scan, and the graph joins it to spots and hands
+    for every one of eleven thousand rows.
+    """
+    con.execute("CREATE TEMP TABLE IF NOT EXISTS _sel (hand_id TEXT, seat INT)")
+    con.execute("DELETE FROM _sel")
+    con.executemany("INSERT INTO _sel VALUES (?,?)", pairs)
+    con.execute("CREATE INDEX IF NOT EXISTS _sel_ix ON _sel(hand_id, seat)")
+    con.execute("ANALYZE _sel")
+
+
+def results_of(con, pairs):
+    """The money over a set of (hand, seat) pairs, tournaments excluded."""
+    select_into(con, pairs)
+    n, net_bb, money, saw, wtsd, wwsf = con.execute(
+        "SELECT COUNT(*), SUM(s.net_bb), SUM(s.won - s.put_in), "
+        "       SUM(s.saw_flop), SUM(s.wtsd), SUM(s.wwsf) "
+        "FROM spots s JOIN _sel ON _sel.hand_id = s.hand_id "
+        "AND _sel.seat = s.seat WHERE s.fmt <> 'MTT'").fetchone()
+    if not n:
+        return None
+    return {"hands": n, "net_bb": net_bb or 0.0, "money": money or 0.0,
+            "saw_flop": saw or 0, "wtsd": wtsd or 0, "wwsf": wwsf or 0,
+            "bb100": 100 * (net_bb or 0.0) / n,
+            "error": 1170 / n ** 0.5}
+
+
 def show_results(con, where, label):
     """
     What the money did in the hands this filter selects.
@@ -520,19 +596,13 @@ def show_results(con, where, label):
     if not pairs:
         print("nothing matches")
         return
-    con.execute("CREATE TEMP TABLE IF NOT EXISTS _sel (hand_id TEXT, seat INT)")
-    con.execute("DELETE FROM _sel")
-    con.executemany("INSERT INTO _sel VALUES (?,?)", pairs)
-
-    row = con.execute(
-        "SELECT COUNT(*), SUM(s.net_bb), SUM(s.won - s.put_in), "
-        "       SUM(s.saw_flop), SUM(s.wtsd), SUM(s.wwsf) "
-        "FROM spots s JOIN _sel ON _sel.hand_id = s.hand_id "
-        "AND _sel.seat = s.seat WHERE s.fmt <> 'MTT'").fetchone()
-    n, net_bb, money, saw, wtsd, wwsf = row
-    if not n:
+    got = results_of(con, pairs)
+    if not got:
         print("nothing matches outside tournaments")
         return
+    n, net_bb, money, saw, wtsd, wwsf = (
+        got["hands"], got["net_bb"], got["money"], got["saw_flop"],
+        got["wtsd"], got["wwsf"])
     print(f"  hands            {n:8d}")
     print(f"  net              {net_bb or 0:+8.1f} bb   (${money or 0:+.2f})")
     print(f"  per 100 hands    {100 * (net_bb or 0) / n:+8.1f} bb/100")

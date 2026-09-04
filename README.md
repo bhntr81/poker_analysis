@@ -56,7 +56,7 @@ decisions.py    one row per decision, 50 columns     --check
         v
 stats.py        35 stats, defined declaratively      --check
 query.py        ask anything, filtered any way       --check
-profile.py      what one opponent does differently   --check
+opponents.py      what one opponent does differently   --check
 population.py   what the pool does, split-half validated  --check
 check.py        run all seven checks, in dependency order
 ```
@@ -103,8 +103,8 @@ Then ask it something:
 
 ```bash
 python stats.py --pool
-python profile.py
-python profile.py SomeOpponent
+python opponents.py
+python opponents.py SomeOpponent
 ```
 
 `USAGE.md` covers every command and what its output means.
@@ -122,7 +122,7 @@ volume and with nothing else, which is why loading another session is often
 worth more than another feature.
 
 Every rate this project prints carries its `n` and a Wilson interval, and
-`profile.py` will only call a player unusual when their interval and the
+`opponents.py` will only call a player unusual when their interval and the
 pool's do not overlap. That throws away a lot of true differences. It also
 throws away every false one, which at these sample sizes is the trade worth
 making.

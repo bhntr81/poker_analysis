@@ -16,9 +16,9 @@ report full of confident nonsense about people who did something twice.
 What comes out is short. That is the point: three real reads beat thirty
 plausible ones.
 
-    python profile.py                  who deviates most, ranked
-    python profile.py NAME             one opponent in full
-    python profile.py --check          PASS or FAIL on this run's goal
+    python opponents.py                  who deviates most, ranked
+    python opponents.py NAME             one opponent in full
+    python opponents.py --check          PASS or FAIL on this run's goal
 """
 
 import sqlite3
