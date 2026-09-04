@@ -14,6 +14,10 @@ Three questions, one filter:
     --results   what the money did in them
     --graph     the four-line results graph, written as an HTML file
 
+and one hand on its own:
+
+    python query.py --hand cp-2459218653
+
 The third needs care and is the reason this module exists rather than
 another flag on `stats.py`. Money is a property of a HAND; "in position on a
 monotone flop" is a property of a DECISION. Filtering the money table by a
@@ -69,7 +73,7 @@ VALUE_FLAGS = {
 }
 
 # Not filters -- they change what is shown, not what is selected.
-OPTIONS = ("--by", "--show", "--min", "--out")
+OPTIONS = ("--by", "--show", "--min", "--out", "--hand")
 
 SWITCHES = {
     "--hero": "is_hero = 1",
@@ -188,7 +192,78 @@ def build(argv):
             continue
         raise SystemExit(f"unknown option {a!r} -- try --help")
     return (" AND ".join(parts) if parts else "1=1",
-            ", ".join(described) if described else "everything")
+            ", ".join(described) if described else "everything",
+            list(zip(described, parts)))
+
+
+# Columns that do not exist before the flop, and the reason each one does
+# not. A filter combining any of these with "preflop" is not broken -- it is
+# asking for something that cannot have happened -- but it returns nothing
+# and looks broken, so the reason is kept here to be said out loud.
+ONLY_POSTFLOP = {
+    "is_ip": "who acts last is only settled once the flop is out",
+    "is_pfa": "there is no preflop aggressor until preflop is over",
+    "fl_mono": "the flop had not come",
+    "fl_twotone": "the flop had not come",
+    "fl_paired": "the flop had not come",
+    "fl_conn": "the flop had not come",
+    "fl_hi": "the flop had not come",
+}
+# The two ladders use different words, and a word from one never appears in
+# the other.
+PREFLOP_FACING = ("unopened", "open", "3bet", "4bet", "5bet+")
+POSTFLOP_FACING = ("check", "bet", "raise")
+
+
+def why_empty(con, parts):
+    """
+    Why a filter matched nothing, in a sentence.
+
+    An empty table is the least informative thing an interface can show, and
+    most of the empty ones here are not mistakes: a preflop decision has no
+    position-to-act and no flop texture, and "facing a bet" is a postflop
+    word where "facing an open" is a preflop one. Every one of those is a
+    reasonable thing to click and none of them can return a row. So rather
+    than a blank page, the filter is taken apart and the first term or pair
+    that kills it is named.
+    """
+    if not parts:
+        return "the database is empty"
+    count = lambda w: con.execute(
+        f"SELECT COUNT(*) FROM decisions WHERE {w}").fetchone()[0]
+
+    alone = [(label, sql, count(sql)) for label, sql in parts]
+    dead = [f"'{label}'" for label, _sql, n in alone if not n]
+    if dead:
+        return f"{', '.join(dead)} matches nothing at all in this database"
+
+    for i, (l1, s1, _n1) in enumerate(alone):
+        for l2, s2, _n2 in alone[i + 1:]:
+            if count(f"({s1}) AND ({s2})"):
+                continue
+            hint = ""
+            pre = "preflop" in (s1 + s2)
+            for col, reason in ONLY_POSTFLOP.items():
+                if col in s1 + s2 and pre:
+                    hint = f" -- {reason}"
+                    break
+            if not hint and "pot_type" in s1 + s2 and pre:
+                # A pot is only "limped" once it is settled that nobody
+                # raised, which is a fact about the pot AFTER preflop. While
+                # preflop is still happening the pot is "unopened".
+                hint = (" -- a pot is not limped until preflop is over; "
+                        "during it the pot type is 'unopened'")
+            if not hint and "facing" in s1 + s2:
+                if any(f"'{w}'" in s1 + s2 for w in POSTFLOP_FACING) and pre:
+                    hint = (" -- 'bet', 'raise' and 'check' describe postflop "
+                            "streets; preflop uses 'open', '3bet', '4bet'")
+                elif any(f"'{w}'" in s1 + s2 for w in PREFLOP_FACING):
+                    hint = (" -- 'open', '3bet' and '4bet' describe preflop; "
+                            "after the flop it is 'bet', 'raise', 'check'")
+            return f"'{l1}' and '{l2}' never occur together{hint}"
+
+    return ("no two of these conflict on their own, but together they select "
+            "nothing -- drop one at a time to find the pair that does")
 
 
 def stats_of(con, where):
@@ -217,13 +292,14 @@ def stats_of(con, where):
     return n_dec, rows
 
 
-def show_stats(con, where, label):
+def show_stats(con, where, label, parts=()):
     """Every stat that has anything to say under this filter."""
     print(f"\nfilter: {label}")
     print("=" * (len(label) + 8))
     n_dec, rows = stats_of(con, where)
     print(f"{n_dec} decisions match\n")
     if not n_dec:
+        print("  " + why_empty(con, parts))
         return
     last = None
     for r in rows:
@@ -457,6 +533,109 @@ def show_graph(con, where, label, out_path="graph.html"):
     return str(path.resolve())
 
 
+# What each action code means when it is read back rather than counted.
+VERBS = {"F": "folds", "X": "checks", "C": "calls", "B": "bets",
+         "R": "raises to", "A": "all-in"}
+
+
+def hand_detail(con, hand_id, seat=None):
+    """
+    One hand, replayed: who sat where, what they held, and what they did.
+
+    A list of hands you cannot open is a dead end, and filtering down to
+    fourteen interesting hands is only useful if the fourteenth can then be
+    looked at. The pot before each action comes from `decisions` rather than
+    being replayed again here -- there is one pot reconstruction in this
+    project and this is not a second one.
+
+    Ignition shows every player's cards including the folded ones, so on
+    those hands this is the whole deal. ACR shows them at showdown only, and
+    the difference is visible: a seat with no cards was not seen, rather than
+    dealt nothing.
+    """
+    con.row_factory = sqlite3.Row
+    h = con.execute("SELECT * FROM hands WHERE hand_id=?", (hand_id,)).fetchone()
+    if h is None:
+        return None
+    seats = [dict(r) for r in con.execute(
+        "SELECT * FROM seats WHERE hand_id=? ORDER BY seat", (hand_id,))]
+    pots = {r["n"]: (r["pot_before"], r["to_call"], r["pot_bb"])
+            for r in con.execute(
+                "SELECT n, pot_before, to_call, pot_bb FROM decisions "
+                "WHERE hand_id=?", (hand_id,))}
+    by_seat = {r["seat"]: r for r in seats}
+
+    streets, order = [], {"preflop": 0, "flop": 1, "turn": 2, "river": 3}
+    board = (h["board"] or "").split()
+    shown = {"preflop": "", "flop": " ".join(board[:3]),
+             "turn": " ".join(board[:4]), "river": " ".join(board[:5])}
+    for st in ("preflop", "flop", "turn", "river"):
+        acts = [dict(r) for r in con.execute(
+            "SELECT * FROM actions WHERE hand_id=? AND street=? ORDER BY n",
+            (hand_id, st))]
+        if not acts:
+            continue
+        lines = []
+        for a in acts:
+            pot, to_call, pot_bb = pots.get(a["n"], (None, None, None))
+            who = by_seat.get(a["seat"], {})
+            size = a["total"] if a["action"] in ("R", "A") and a["total"] \
+                else a["amount"]
+            lines.append({
+                "seat": a["seat"], "position": a["position"],
+                "name": who.get("label"), "is_hero": who.get("is_hero"),
+                "verb": VERBS.get(a["action"], a["action"]),
+                "action": a["action"], "amount": size,
+                "pot_before": pot, "to_call": to_call, "pot_bb": pot_bb})
+        streets.append({"street": st, "board": shown[st], "actions": lines})
+
+    con.row_factory = None
+    return {
+        "hand_id": hand_id, "site": h["site"], "played_at": h["played_at"],
+        "table": h["table_id"], "fmt": h["fmt"], "sb": h["sb"], "bb": h["bb"],
+        "n_players": h["n_players"], "board": h["board"], "pot": h["pot"],
+        "rake": (h["rake"] if "rake" in h.keys() else None),
+        "focus": seat,
+        "seats": [{"seat": r["seat"], "name": r["label"],
+                   "position": r["position"], "stack": r["stack"],
+                   "cards": r["cards"], "is_hero": r["is_hero"],
+                   "won": r["won"], "put_in": (r["posted"] or 0) + (r["invested"] or 0)}
+                  for r in seats],
+        "streets": streets}
+
+
+def show_hand(con, hand_id, seat=None):
+    """The same hand, for a terminal."""
+    d = hand_detail(con, hand_id, seat)
+    if d is None:
+        print(f"no hand {hand_id!r}")
+        return
+    stake = f"${d['sb']}/${d['bb']}" if d["bb"] else "-"
+    print(f"\n{d['hand_id']}   {d['site']}  {d['fmt']}  {stake}  "
+          f"{d['played_at']}  ({d['table']})")
+    print("=" * 78)
+    for s in d["seats"]:
+        mark = "*" if s["seat"] == seat else (">" if s["is_hero"] else " ")
+        net = (s["won"] or 0) - s["put_in"]
+        print(f" {mark} {s['position'] or '?':4} {(s['name'] or '')[:16]:16} "
+              f"{s['stack'] or 0:9.2f}  {s['cards'] or '--':>7}  "
+              f"{net:+8.2f}")
+    for st in d["streets"]:
+        head = st["street"].upper()
+        if st["board"]:
+            head += f"  [{st['board']}]"
+        first = st["actions"][0] if st["actions"] else None
+        if first and first["pot_before"] is not None:
+            head += f"   pot {first['pot_before']:.2f}"
+        print(f"\n{head}")
+        for a in st["actions"]:
+            amt = f" {a['amount']:.2f}" if a["amount"] else ""
+            print(f"    {a['position'] or '?':4} {a['verb']}{amt}")
+    if d["pot"]:
+        rake = f"  rake {d['rake']:.2f}" if d["rake"] else ""
+        print(f"\nTOTAL POT {d['pot']:.2f}{rake}")
+
+
 def show_report(con, where, label, dim, columns, min_n=30):
     """
     One row per value of the dimension, one column per stat.
@@ -582,7 +761,7 @@ def results_of(con, pairs):
             "error": 1170 / n ** 0.5}
 
 
-def show_results(con, where, label):
+def show_results(con, where, label, parts=()):
     """
     What the money did in the hands this filter selects.
 
@@ -594,7 +773,7 @@ def show_results(con, where, label):
     print("=" * (len(label) + 8))
     pairs = matching_seats(con, where)
     if not pairs:
-        print("nothing matches")
+        print("nothing matches -- " + why_empty(con, parts))
         return
     got = results_of(con, pairs)
     if not got:
@@ -618,7 +797,7 @@ def show_results(con, where, label):
         print(f"  won after flop   {100 * (wwsf or 0) / saw:8.1f}%")
 
 
-def show_hands(con, where, label, limit=40):
+def show_hands(con, where, label, limit=40, parts=()):
     """The hands themselves, most recent first."""
     print(f"\nfilter: {label}")
     print("=" * (len(label) + 8))
@@ -633,6 +812,9 @@ def show_hands(con, where, label, limit=40):
         f"  ON s.hand_id = d.hand_id AND s.seat = d.seat "
         f"ORDER BY d.played_at DESC").fetchall()
     print(f"{len(rows)} hands match; showing up to {limit}\n")
+    if not rows:
+        print("  " + why_empty(con, parts))
+        return
     print(f"  {'when':17} {'site':10} {'bb':>5} {'pos':4} {'hand':5} "
           f"{'net bb':>7}  board")
     print("  " + "-" * 74)
@@ -660,6 +842,7 @@ def usage():
     print(f"    {'--show':14} which stats are the columns "
           f"(default: {','.join(DEFAULT_COLUMNS)})")
     print(f"    {'--min':14} mark cells below this many chances (default 30)")
+    print(f"    {'--hand':14} replay one hand by id, ignoring every filter")
     print("\n  positions: " + ", ".join(POSITIONS))
     print("  streets:   " + ", ".join(STREETS))
     print("  pot types: " + ", ".join(POT_TYPES))
@@ -708,7 +891,7 @@ def check(db_path=DB):
     ).fetchone()[0]]))
 
     for name, argv in cases:
-        where, _ = build(argv)
+        where, _, _p = build(argv)
         checked += 1
         try:
             n = con.execute(
@@ -725,10 +908,31 @@ def check(db_path=DB):
     for f in fails:
         print(f"    {f}")
 
+    # A replayed hand must show every action the hand had. A viewer that
+    # drops one is worse than no viewer: the reader sees a complete-looking
+    # hand and reasons about a line that nobody took.
+    sample = [r[0] for r in con.execute(
+        "SELECT hand_id FROM hands WHERE game='HOLDEM' "
+        "ORDER BY RANDOM() LIMIT 200")]
+    lost = []
+    for hid in sample:
+        d = hand_detail(con, hid)
+        shown = sum(len(st["actions"]) for st in d["streets"])
+        real = con.execute(
+            "SELECT COUNT(*) FROM actions WHERE hand_id=?", (hid,)).fetchone()[0]
+        if shown != real:
+            lost.append(f"{hid}: {shown} shown of {real}")
+    print(f"replayed hands keep every action  {len(sample) - len(lost)}"
+          f"/{len(sample)}")
+    for x in lost[:4]:
+        print(f"    {x}")
+    if lost:
+        fails.append("hand viewer drops actions")
+
     # The three modes must survive a filter that legitimately matches nothing,
     # since a user will type one within a day of being given the tool.
-    empty, _ = build(["--pos", "BTN", "--street", "preflop",
-                      "--facing", "check"])
+    empty, _, _ep = build(["--pos", "BTN", "--street", "preflop",
+                           "--facing", "check"])
     for mode, fn in (("stats", show_stats), ("results", show_results),
                      ("hands", show_hands)):
         try:
@@ -760,7 +964,12 @@ def main(argv):
             argv = [a for a in argv if a != m]
 
     def opt(name, default=None):
-        return argv[argv.index(name) + 1] if name in argv else default
+        if name not in argv:
+            return default
+        i = argv.index(name) + 1
+        if i >= len(argv):
+            raise SystemExit(f"{name} needs a value")
+        return argv[i]
 
     dim = opt("--by")
     if dim is not None and dim not in DIMENSIONS:
@@ -772,21 +981,27 @@ def main(argv):
             raise SystemExit(f"unknown stat {c!r} -- see `stats.py --list`")
     min_n = int(opt("--min", "30"))
 
-    where, label = build(argv)
+    if opt("--hand"):
+        con = sqlite3.connect(DB)
+        show_hand(con, opt("--hand"))
+        con.close()
+        return 0
+
+    where, label, _parts = build(argv)
     con = sqlite3.connect(DB)
     if mode == "--graph":
         show_graph(con, where, label, opt("--out", "graph.html"))
     elif mode == "--hands":
-        show_hands(con, where, label)
+        show_hands(con, where, label, parts=_parts)
     elif mode == "--results":
         if dim:
             show_results_by(con, where, label, dim)
         else:
-            show_results(con, where, label)
+            show_results(con, where, label, _parts)
     elif dim:
         show_report(con, where, label, dim, columns, min_n)
     else:
-        show_stats(con, where, label)
+        show_stats(con, where, label, _parts)
     con.close()
     return 0
 

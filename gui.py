@@ -73,11 +73,16 @@ def argv_from(params):
 def payload(con, params):
     """Whatever the page asked for, as plain data."""
     view = params.get("view", ["stats"])[0]
-    where, label = query.build(argv_from(params))
+    where, label, parts = query.build(argv_from(params))
+
+    def nothing():
+        """Why this filter is empty, so the page never just goes blank."""
+        return query.why_empty(con, parts)
 
     if view == "stats":
         n_dec, rows = query.stats_of(con, where)
-        return {"label": label, "decisions": n_dec, "rows": rows}
+        return {"label": label, "decisions": n_dec, "rows": rows,
+                "why": None if n_dec else nothing()}
 
     if view == "report":
         dim = params.get("by", ["position"])[0]
@@ -93,6 +98,7 @@ def payload(con, params):
         return {
             "label": label, "dim": dim,
             "columns": [{"key": c, "label": BY_KEY[c].label} for c in cols],
+            "why": None if keys else nothing(),
             "rows": [{
                 "key": str(k), "n": counts.get(k, (0, 0))[0],
                 "cells": [
@@ -115,9 +121,11 @@ def payload(con, params):
                     con, f"({where}) AND ({expr}) = {lit}"))
                 if got:
                     out.append(dict(got, key=str(v)))
-            return {"label": label, "dim": dim, "rows": out}
+            return {"label": label, "dim": dim, "rows": out,
+                    "why": None if out else nothing()}
         got = query.results_of(con, query.matching_seats(con, where))
-        return {"label": label, "totals": got}
+        return {"label": label, "totals": got,
+                "why": None if got else nothing()}
 
     if view == "hands":
         rows = con.execute(
@@ -128,13 +136,20 @@ def payload(con, params):
             f"ORDER BY d.played_at DESC LIMIT 300").fetchall()
         return {"label": label, "rows": [
             {"when": r[2], "site": r[3], "bb": r[4], "pos": r[5],
-             "combo": r[6], "board": r[7], "net": r[8], "id": r[0]}
-            for r in rows]}
+             "combo": r[6], "board": r[7], "net": r[8], "id": r[0],
+             "seat": r[1]}
+            for r in rows], "why": None if rows else nothing()}
+
+    if view == "hand":
+        hid = params.get("id", [""])[0]
+        seat = params.get("seat", [""])[0]
+        return {"hand": query.hand_detail(
+            con, hid, int(seat) if seat.isdigit() else None)}
 
     if view == "graph":
         pairs = query.matching_seats(con, where)
         if len(pairs) < 2:
-            return {"label": label, "svg": None}
+            return {"label": label, "svg": None, "why": nothing()}
         query.select_into(con, pairs)
         hands, adj, skipped = query.adjusted(con, pairs)
         if len(hands) < 2:
@@ -221,6 +236,8 @@ th:first-child,td:first-child{text-align:left}
 th{color:var(--dim);font-weight:500;font-size:11px;text-transform:uppercase;
   letter-spacing:.05em}
 tbody tr:hover{background:var(--panel)}
+tr.click{cursor:pointer}
+.link{color:var(--accent);cursor:pointer}
 .thin{color:var(--dim)}
 .thin::after{content:' ?';color:#b8892a}
 .n{color:var(--dim);font-size:11px}
@@ -371,12 +388,14 @@ function render(d){
   const out = $('#out');
   $('#filter').textContent = 'filter: ' + (d.label || 'everything');
   if (d.error){ out.innerHTML = `<p class="empty">${d.error}</p>`; return; }
+  const nope = msg => `<p class="empty">nothing matches<br><span class="n">${
+    d.why || msg || ''}</span></p>`;
 
   if (state.view === 'stats'){
     if (!d.rows.length){
-      out.innerHTML = `<p class="empty">${d.decisions
-        ? 'no stat can occur inside this filter — asking for a preflop stat inside street=flop does this'
-        : 'nothing matches'}</p>`; return; }
+      out.innerHTML = d.decisions
+        ? `<p class="empty">no stat can occur inside this filter<br><span class="n">asking for a preflop stat inside street=flop does this</span></p>`
+        : nope(); return; }
     let g = null, h = `<p class="n">${d.decisions.toLocaleString()} decisions match</p><table><tbody>`;
     for (const r of d.rows){
       if (r.group !== g){ g = r.group;
@@ -389,7 +408,7 @@ function render(d){
     out.innerHTML = h + '</tbody></table>';
 
   } else if (state.view === 'report'){
-    if (!d.rows.length){ out.innerHTML = '<p class="empty">nothing matches</p>'; return; }
+    if (!d.rows.length){ out.innerHTML = nope(); return; }
     let h = '<table><thead><tr><th>'+d.dim+'</th>'
       + d.columns.map(c=>`<th>${c.label}</th>`).join('') + '<th>n</th></tr></thead><tbody>';
     for (const r of d.rows){
@@ -402,7 +421,7 @@ function render(d){
 
   } else if (state.view === 'results'){
     if (d.rows){
-      if (!d.rows.length){ out.innerHTML='<p class="empty">nothing matches</p>'; return; }
+      if (!d.rows.length){ out.innerHTML = nope(); return; }
       let h = `<table><thead><tr><th>${d.dim}</th><th>hands</th><th>net bb</th>`
         + `<th>bb/100</th><th>± error</th></tr></thead><tbody>`;
       for (const r of d.rows)
@@ -411,7 +430,7 @@ function render(d){
           + `<td class="n">${r.error.toFixed(0)}</td></tr>`;
       out.innerHTML = h + '</tbody></table>';
     } else if (!d.totals){
-      out.innerHTML = '<p class="empty">nothing matches</p>';
+      out.innerHTML = nope();
     } else {
       const t = d.totals;
       out.innerHTML = `<table><tbody>
@@ -430,20 +449,73 @@ function render(d){
     }
 
   } else if (state.view === 'graph'){
-    out.innerHTML = d.svg || '<p class="empty">not enough hands to draw a line</p>';
+    out.innerHTML = d.svg || nope('not enough hands to draw a line');
 
   } else {
-    if (!d.rows.length){ out.innerHTML='<p class="empty">nothing matches</p>'; return; }
-    let h = '<table><thead><tr><th>when</th><th>site</th><th>bb</th><th>pos</th>'
+    if (!d.rows.length){ out.innerHTML = nope(); return; }
+    let h = '<p class="n">click a hand to replay it</p>'
+      + '<table><thead><tr><th>when</th><th>site</th><th>bb</th><th>pos</th>'
       + '<th>hand</th><th>net bb</th><th>board</th></tr></thead><tbody>';
     for (const r of d.rows)
-      h += `<tr><td>${(r.when||'').slice(0,16)}</td><td>${r.site}</td>`
+      h += `<tr class="click" data-id="${r.id}" data-seat="${r.seat}">`
+        + `<td>${(r.when||'').slice(0,16)}</td><td>${r.site}</td>`
         + `<td class="n">${r.bb??''}</td><td>${r.pos||''}</td>`
         + `<td>${r.combo||'–'}</td><td>${r.net==null?'':money(r.net)}</td>`
         + `<td class="n">${r.board||''}</td></tr>`;
     out.innerHTML = h + '</tbody></table>';
   }
 }
+
+const CARD = c => {
+  // Suits get their colour back, because a flush is the thing you are
+  // looking for and four letters in one grey is not how anyone reads a hand.
+  const col = {s:'#d8dbe0', h:'#d1443c', d:'#4c9aff', c:'#22a35a'}[c[1]] || '';
+  return `<span style="color:${col}">${c}</span>`;
+};
+const CARDS = t => (t||'').split(/\s+/).filter(Boolean).map(CARD).join(' ');
+
+function renderHand(d){
+  if (!d){ $('#out').innerHTML = '<p class="empty">hand not found</p>'; return; }
+  const stake = d.bb ? `$${d.sb}/$${d.bb}` : '–';
+  let h = `<p><span class="link" id="back">&larr; back to hands</span></p>`
+    + `<p class="filter">${d.hand_id} · ${d.site} · ${d.fmt} · ${stake}`
+    + ` · ${d.played_at} · ${d.table}</p>`
+    + '<table><thead><tr><th>seat</th><th>player</th><th>stack</th>'
+    + '<th>cards</th><th>net</th></tr></thead><tbody>';
+  for (const s of d.seats){
+    const net = (s.won||0) - (s.put_in||0);
+    const me = s.seat === d.focus ? ' style="background:#232833"' : '';
+    h += `<tr${me}><td>${s.position||'?'}${s.is_hero?' <span class="n">(you)</span>':''}</td>`
+      + `<td>${s.name||''}</td><td class="n">${(s.stack||0).toFixed(2)}</td>`
+      + `<td>${s.cards?CARDS(s.cards):'<span class="n">not shown</span>'}</td>`
+      + `<td>${money(net)}</td></tr>`;
+  }
+  h += '</tbody></table>';
+  for (const st of d.streets){
+    const pot = st.actions.length && st.actions[0].pot_before != null
+      ? `  ·  pot ${st.actions[0].pot_before.toFixed(2)}` : '';
+    h += `<p class="group">${st.street}${st.board?'  '+CARDS(st.board):''}${pot}</p>`
+      + '<table><tbody>';
+    for (const a of st.actions)
+      h += `<tr><td style="width:80px">${a.position||'?'}</td>`
+        + `<td>${a.name||''}</td><td>${a.verb}`
+        + `${a.amount?' '+a.amount.toFixed(2):''}</td></tr>`;
+    h += '</tbody></table>';
+  }
+  if (d.pot) h += `<p class="n">total pot ${d.pot.toFixed(2)}`
+    + `${d.rake?' · rake '+d.rake.toFixed(2):''}</p>`;
+  $('#out').innerHTML = h;
+  $('#back').onclick = load;
+}
+
+document.addEventListener('click', async e => {
+  const row = e.target.closest('tr.click');
+  if (!row) return;
+  const p = new URLSearchParams({view:'hand', id:row.dataset.id,
+                                 seat:row.dataset.seat});
+  const d = await (await fetch('/api?' + p)).json();
+  renderHand(d.hand);
+});
 
 let seq = 0;
 async function load(){
@@ -536,8 +608,8 @@ def check(db_path=DB):
         ({}, []),
     ]
     for form, argv in cases:
-        a, _ = query.build(argv_from(form))
-        b, _ = query.build(argv)
+        a, _label_a, _pa = query.build(argv_from(form))
+        b, _label_b, _pb = query.build(argv)
         if sorted(a.split(" AND ")) != sorted(b.split(" AND ")):
             fails.append(f"{form} -> {a!r} but CLI gives {b!r}")
     print(f"page and command line agree  {len(cases) - len(fails)}/{len(cases)}")

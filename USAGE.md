@@ -124,7 +124,45 @@ hard and you will be looking at frequencies, which is the right thing to
 look at anyway.
 
 **`--hands`** lists the hands themselves, newest first, with the board and
-what each one made.
+what each one made. In the interface a row opens; on the command line you
+open one by id:
+
+```bash
+python query.py --hand 5331315698
+```
+
+That replays it — who sat where, what they held, and the action street by
+street with the pot before each decision. On Ignition every player's cards
+are there including the folded ones, because the site shows them. On ACR a
+seat reads `--` when the hand was never shown, which is different from
+having been dealt nothing.
+
+### When nothing matches
+
+Some perfectly reasonable filters cannot match anything, and rather than a
+blank page you get the reason:
+
+```
+$ python query.py --ip --street preflop
+0 decisions match
+  'ip' and 'street preflop' never occur together -- who acts last is only
+  settled once the flop is out
+```
+
+The ones worth knowing, because they will all be clicked eventually:
+
+| filter | why it is empty |
+|---|---|
+| `--ip` / `--oop` with `--street preflop` | who acts last is only settled once the flop is out |
+| `--pfa` with `--street preflop` | there is no preflop aggressor until preflop is over |
+| `--board ...` with `--street preflop` | the flop had not come |
+| `--facing bet/raise/check` with `--street preflop` | those are postflop words; preflop uses `open`, `3bet`, `4bet` |
+| `--facing open/3bet/4bet` with a postflop street | and the reverse |
+| `--pot limped` with `--street preflop` | a pot is not limped until preflop is over; during it, it is `unopened` |
+
+None of these is a bug. They are the filter asking for something that could
+not have happened, and the point of the message is that you can tell the
+difference without having to guess.
 
 Filters worth knowing: `--hero`/`--pool`, `--site`, `--player`, `--pos`,
 `--street`, `--pot`, `--facing`, `--ip`/`--oop`, `--deep N`/`--short N`,
