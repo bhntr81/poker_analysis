@@ -71,7 +71,14 @@ Tables are derived from each other. Rebuilding one and not the ones below it
 leaves a database that is consistent nowhere and looks fine everywhere.
 
 ```
-ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  stats.py, opponents.py
+ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  lines.py
+                                                 ->  stats.py, opponents.py
+```
+
+`lines.py` writes onto `decisions`, so rebuilding `decisions` empties its
+columns and every line filter silently matches nothing. Run it after.
+```bash
+python decisions.py && python lines.py
 ```
 
 `hands.db` is gitignored and is the only copy. `cp hands.db hands.db.bak`
@@ -123,6 +130,19 @@ Facts that stay true, and that have each been got wrong at least once:
   on a monotone flop; the flop had not come. Stamping it there let a
   monotone-flop filter select preflop folds in hands that happened to run
   out monotone — 194 "hands", 69 of which had seen a flop.
+- **An action tree is a string, and a node is a prefix of one.** The
+  betting is written per street as `XBC`, a node is that cut short at the
+  moment somebody had to act, and `node GLOB 'RC/X*'` is a B-tree seek.
+  Measured over copies of the table at 94k, 1M and 3M decisions it took
+  0.3ms, 1.4ms and 2.7ms; the unindexed filters beside it took 221ms, 2.4s
+  and 6.9s. Nothing here needs a graph engine or a second copy of the data.
+- **An all-in is not always a raise.** 95 of 236 are calls for the last of
+  a stack. `lines.letter()` writes those as `C`; counting them as raises put
+  31 preflop decisions in the wrong pot type.
+- **Position labels are not unique within a hand.** Eight-handed tables are
+  recorded against six position names, so 1,076 hands have one label
+  covering two seats. Anything keyed on position must expect that; the
+  order of action never has the problem.
 - **Money is a property of a hand, a spot is a property of a decision.** So
   `query.py --results` selects decisions and then sums whole hands. A player
   in position on a monotone flop won or lost the whole pot, not the part

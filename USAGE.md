@@ -56,7 +56,14 @@ python spots.py --check
 
 python decisions.py        # one row per decision          (~2 min)
 python decisions.py --check
+
+python lines.py            # how the betting went          (~10 s)
+python lines.py --check
 ```
+
+`lines` writes onto `decisions`, so it goes last and it goes again every
+time `decisions` is rebuilt. Skip it and the line filters match nothing,
+without complaining.
 
 `spots` holds what is true of a whole hand: the cards, the money, whether
 they saw a flop, whether they reached showdown. `decisions` holds what was
@@ -71,6 +78,41 @@ table of decisions.
 ---
 
 ## Asking questions
+
+### Filtering by how the betting went
+
+The betting on each street is written down as a short string, and you filter
+it with a pattern:
+
+```bash
+python query.py --flop XBC              # checked, bet, called
+python query.py --flop "XB*"            # checked to somebody who bet
+python query.py --turn XX               # checked through
+python query.py --pre "*R*R*"           # somebody 3-bet
+python query.py --line "*R*R*/XBC/XX/*" # all of it at once
+python query.py --node "*/XB"           # it is your turn, facing a bet
+```
+
+| | |
+|---|---|
+| `F` fold | `X` check |
+| `C` call | `B` bet |
+| `R` raise | `A` all-in |
+| `*` anything | `?` any one action |
+
+A `/` separates streets. Add a size letter after a bet to say how big:
+`s` a third or less, `m` half, `l` two-thirds to three-quarters, `p` pot,
+`o` an overbet. So `--flop XBmC` is a flop that went check, half-pot bet,
+call. Sizes are buckets rather than percentages because a filter written
+against an exact percentage matches almost nothing.
+
+`--node` is the one to reach for when measuring a decision: it is the hand
+cut short at the moment the player had to act, so it never contains what
+they did next. `--line` is the whole hand and includes it.
+
+`python lines.py --common flop` lists the lines that actually occur.
+
+---
 
 ### `query.py` — the one you will use most
 

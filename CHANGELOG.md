@@ -8,6 +8,62 @@ Newest first.
 
 ---
 
+## The shape of the betting, and how far this design carries
+
+### Added — `lines.py`, action sequences as a filter
+
+Every filter until now asked about one decision. None could ask about the
+sequence, because a sequence is not a property of a row — and "the flop went
+check, bet, call" is the shape most real questions have.
+
+Each street's actions are written in order as a short string, and an action
+node is a prefix of one. `--flop XBC`, `--turn XX`, `--pre "*R*R*"`,
+`--node "*/XB"`. Sizes are buckets, not percentages: `XBmC` is that flop
+with a half-pot bet, because a filter written against an exact percentage
+matches almost nothing. Which of the two columns a pattern reads is decided
+by the pattern — verbs and size letters share no character, so `XBC` can
+only mean actions and `XBmC` can only mean actions with a size.
+
+### Fixed — an all-in counted as a raise even when it was a call
+
+95 of the 236 all-ins here are calls for the last of a stack. Writing them
+all as raises put **31 preflop decisions in a different pot type** from the
+one `decisions` had already derived, and would have made "he shoved over my
+bet" select hands where he called. Found by the check rather than by
+inspection: a sequence written down wrongly is still a well-formed string.
+
+### Measured — where this design stops being fast enough
+
+Against copies of the real table enlarged to 1M and 3M decisions:
+
+| decisions | unindexed filter | node lookup |
+|---|---|---|
+| 94,017 (today) | 221 ms | 0.3 ms |
+| 1,000,000 | 2,355 ms | 1.4 ms |
+| 3,000,000 | 6,889 ms | 2.7 ms |
+
+The scan grows linearly; the prefix seek does not. And the scan is a missing
+index, not a language: adding two indexes to a 1.5M-row copy took the 3-bet
+flop aggression query from **2,316 ms to 7.8 ms, 296×**, for fifteen seconds
+of index building. Rewriting the engine in C would still scan three million
+rows.
+
+### Fixed — three things that would only have failed on a Mac or Linux
+
+`os.startfile` exists on Windows alone, so the Help menu's "open the log
+folder" raised `AttributeError` everywhere else — in a windowed build, where
+that failure is invisible. "Segoe UI" and "Consolas" ship with Windows and
+nothing else, and Tk does not fail on a missing font, it substitutes one
+silently. And `build.py` named its output `.exe` unconditionally.
+
+`build.py --check` now also asserts that nothing outside the standard
+library is imported at runtime, which is the property that makes the source
+itself portable and the build optional. `.github/workflows/build.yml` runs
+the same build on Windows, macOS and Linux, because PyInstaller cannot
+cross-compile and a Mac binary has to be made on a Mac.
+
+---
+
 ## The first opponent reads, and what running them exposed
 
 `opponents.py` had passed its check but had never actually produced a report.

@@ -1,0 +1,66 @@
+# One tag, three downloads.
+#
+# PyInstaller cannot cross-compile -- it packages the runtime of the machine
+# it runs on -- so a Mac build has to happen on a Mac and a Linux build on
+# Linux. That is the whole reason this file exists: it rents all three
+# machines for a minute each rather than asking anybody to own them.
+#
+# The checks run first and the build only follows a pass, because a green
+# download is worse than no download if the program inside it is wrong.
+name: build
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows
+          - os: macos-latest
+            name: macos
+          - os: ubuntu-latest
+            name: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Tk is part of Python on Windows and macOS and is a separate package
+      # on Linux, where without it the program imports and then cannot open
+      # a window -- which looks like a crash rather than a missing package.
+      - name: Install Tk
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y python3-tk
+
+      # The parts that do not need a database. The rest of the checks read
+      # hands, and there are none here: hand histories are the user's data
+      # and are not in the repository.
+      - name: Check what runs without hands
+        run: |
+          python -c "import app, query, stats, lines, decisions, spots, equity, importer, diag"
+          python diag.py --check
+          python build.py --check
+
+      - name: Install PyInstaller
+        run: python -m pip install pyinstaller
+
+      - name: Build
+        run: python build.py
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poker_analysis-${{ matrix.name }}
+          path: |
+            dist/poker_analysis.exe
+            dist/poker_analysis.app
+            dist/poker_analysis
+          if-no-files-found: error
