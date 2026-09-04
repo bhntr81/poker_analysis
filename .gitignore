@@ -4,3 +4,9 @@ hands.db
 
 # generated reports
 graph*.html
+
+# build output -- dist/ also holds a link to the real database
+build/
+dist/
+*.spec
+hands.db.bak*

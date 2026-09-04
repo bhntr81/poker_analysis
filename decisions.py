@@ -48,7 +48,7 @@ CREATE TABLE decisions (
   -- who they are in this hand
   pot_type TEXT, is_pfa INT, prev_agg INT, is_ip INT,
   first_in INT, checked_to INT, was_agg INT, acted_before INT,
-  vs_pfa INT,
+  vs_pfa INT, vs_pos TEXT, vs_hero INT, opener_pos TEXT, pfa_pos TEXT,
 
   -- what they are answering
   facing TEXT, street_agg INT,
@@ -65,6 +65,7 @@ CREATE TABLE decisions (
 CREATE INDEX dec_player ON decisions(player, site);
 CREATE INDEX dec_spot ON decisions(street, pot_type, facing);
 CREATE INDEX dec_pos ON decisions(site, fmt, position, street);
+CREATE INDEX dec_vs ON decisions(position, vs_pos, pot_type);
 CREATE INDEX dec_hand ON decisions(hand_id);
 """
 
@@ -143,6 +144,7 @@ def build(db_path=DB):
         # facing a 3bet has to be identified as somebody who already raised.
         acted_this, agg_this = set(), set()
         pf_raises, pfa = 0, None
+        opener = None       # seat of the first player to raise preflop
         prev_street_agg, checked_through, first_of_street = None, 0, True
 
         for a in actions:
@@ -235,6 +237,29 @@ def build(db_path=DB):
                 int(last_agg is not None and pfa is not None
                     and last_agg == pfa),
 
+                # Who this decision is AGAINST. A tracker question is almost
+                # never "how does the big blind play" -- it is "how does the
+                # big blind play against a button open, and is that button
+                # me or one of them", and neither half of that can be asked
+                # unless the other seat is named on the row.
+                #
+                # `vs_pos` is filled only when exactly one opponent is still
+                # live, because with two of them "the opponent" is not a
+                # thing that exists, and picking one would put a real name on
+                # an invented matchup.
+                (by_seat[opp[0]]["position"]
+                 if len(opp) == 1 and opp[0] in by_seat else None),
+                (int(bool(by_seat[opp[0]]["is_hero"]))
+                 if len(opp) == 1 and opp[0] in by_seat else None),
+                (by_seat[opener]["position"]
+                 if opener is not None and opener in by_seat else None),
+                # Preflop this is whoever raised most recently, which is the
+                # player being answered. Afterwards it is the preflop
+                # aggressor, which is who the street is played against.
+                (by_seat[pfa if street != "preflop" else last_agg]["position"]
+                 if (pfa if street != "preflop" else last_agg) in by_seat
+                 else None),
+
                 facing, street_agg,
 
                 a["action"], agg, allin, amount, total,
@@ -268,6 +293,8 @@ def build(db_path=DB):
                 last_agg = seat
                 if street == "preflop":
                     pf_raises += 1
+                    if opener is None:
+                        opener = seat
 
     n = len(con.execute("SELECT * FROM decisions LIMIT 0").description)
     con.executemany(
@@ -347,6 +374,35 @@ def check(db_path=DB):
           f"all-in preflop {allin})")
     if not same:
         fails.append("saw flop")
+
+    # Columns whose contents are a known, closed vocabulary. A value from
+    # outside it means the row tuple and the schema have drifted apart --
+    # which is exactly what happened when four columns were added in the
+    # middle of the schema and appended to the end of the tuple. Every
+    # figure after the shift was read from the wrong column, and every check
+    # here still passed, because none of them touched the columns that moved.
+    VOCAB = {
+        "street": {"preflop", "flop", "turn", "river"},
+        "vs_pos": {"UTG", "HJ", "CO", "BTN", "SB", "BB", None},
+        "opener_pos": {"UTG", "HJ", "CO", "BTN", "SB", "BB", None},
+        "pfa_pos": {"UTG", "HJ", "CO", "BTN", "SB", "BB", None},
+        "pot_type": {"unopened", "limped", "raised", "3bet", "4bet", "5bet+"},
+        "facing": {"unopened", "open", "3bet", "4bet", "5bet+",
+                   "check", "bet", "raise"},
+        "action": {"F", "X", "C", "B", "R", "A"},
+    }
+    bad = []
+    for col, allowed in VOCAB.items():
+        seen = {r[0] for r in con.execute(f"SELECT DISTINCT {col} FROM decisions")}
+        stray = {v for v in seen - allowed
+                 if not (isinstance(v, str) and v.startswith("UTG+"))}
+        if stray:
+            bad.append(f"{col}: {sorted(str(x) for x in stray)[:4]}")
+    print(f"columns hold only their own vocabulary  {len(VOCAB) - len(bad)}/{len(VOCAB)}")
+    for b in bad:
+        print(f"    {b}")
+    if bad:
+        fails.append("a column holds values from another column")
 
     print()
     print("what the new columns can express that spots cannot:")

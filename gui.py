@@ -1,5 +1,10 @@
 """
-The tracker with a face on it: filters down the side, answers in the middle.
+The tracker as a local page, for when a window is not what is wanted.
+
+`app.py` is the desktop application and the one to reach for. This serves
+the same tool over http instead, which is worth keeping for the one thing a
+window cannot do: reach it from another machine on the same network, or from
+a phone beside the table. It is not the default and nothing depends on it.
 
 Everything this shows, `query.py` could already answer. What it could not do
 is let you change one thing and look again, which is most of what using a
@@ -20,7 +25,7 @@ takes.** That is deliberate and it is the only thing here that really
 matters: two front ends that each assemble their own WHERE clause will
 disagree eventually, and the disagreement will be silent.
 
-    python gui.py              open it
+    python gui.py              open it in a browser
     python gui.py --port 9000  somewhere else
     python gui.py --check      the GUI and the CLI agree, PASS or FAIL
 """
@@ -47,10 +52,12 @@ SWITCH_FIELDS = {
     "hero": "--hero", "pool": "--pool", "ip": "--ip", "oop": "--oop",
     "pfa": "--pfa", "multiway": "--multiway", "headsup": "--headsup",
     "vs_pfa": "--vs-pfa", "standard": "--standard", "allin": "--allin",
+    "vs_hero": "--vs-hero", "vs_pool": "--vs-pool",
 }
 VALUE_FIELDS = {
     "site": "--site", "player": "--player", "pos": "--pos",
     "street": "--street", "pot": "--pot", "facing": "--facing",
+    "vs": "--vs", "opener": "--opener",
     "combo": "--combo", "stake": "--stake", "deep": "--deep",
     "short": "--short", "board": "--board", "since": "--since",
     "until": "--until", "where": "--where",
@@ -265,8 +272,15 @@ tr.click{cursor:pointer}
     <label><select id="stake"><option value="">any stake</option></select></label>
     <label><select id="player"><option value="">any player</option></select></label>
   </fieldset>
-  <fieldset><legend>position</legend>
+  <fieldset><legend>my position</legend>
     <div class="chips" id="pos"></div>
+  </fieldset>
+  <fieldset><legend>against  (heads-up pots only)</legend>
+    <div class="chips" id="vs"></div>
+    <div class="chips" id="vsside">
+      <span class="chip" data-f="vs_hero">vs me</span>
+      <span class="chip" data-f="vs_pool">vs the pool</span>
+    </div>
   </fieldset>
   <fieldset><legend>street</legend>
     <div class="chips" id="street"></div>
@@ -341,7 +355,8 @@ document.addEventListener('click', e => {
     // hero and pool are opposites, as are in and out of position; turning
     // one on has to turn its twin off or the filter selects nothing.
     const twins = {hero:'pool', pool:'hero', ip:'oop', oop:'ip',
-                   multiway:'headsup', headsup:'multiway'};
+                   multiway:'headsup', headsup:'multiway',
+                   vs_hero:'vs_pool', vs_pool:'vs_hero'};
     state.flags[c.dataset.f] = !state.flags[c.dataset.f];
     if (state.flags[c.dataset.f] && twins[c.dataset.f])
       state.flags[twins[c.dataset.f]] = false;
@@ -537,6 +552,7 @@ async function load(){
   $('#by').innerHTML = OPT.dimensions.map(d=>
     `<option${d==='position'?' selected':''}>${d}</option>`).join('');
   chips('pos', POSITIONS, 'pos');
+  chips('vs', POSITIONS, 'vs');
   chips('street', STREETS, 'street');
   chips('pot', POTS, 'pot');
   chips('board', OPT.boards, 'board');
@@ -604,6 +620,10 @@ def check(db_path=DB):
          ["--pool", "--site", "acr", "--pos", "BTN,CO"]),
         ({"board": ["mono,paired"], "deep": ["100"]},
          ["--deep", "100", "--board", "mono,paired"]),
+        ({"pool": ["1"], "vs_pool": ["1"], "pos": ["BTN"], "vs": ["BB"],
+          "pot": ["3bet"]},
+         ["--pool", "--vs-pool", "--pos", "BTN", "--vs", "BB",
+          "--pot", "3bet"]),
         ({"where": ["eff_bb > 150"]}, ["--where", "eff_bb > 150"]),
         ({}, []),
     ]
@@ -663,6 +683,7 @@ def main(argv):
     url = f"http://127.0.0.1:{port}/"
     print(f"poker_analysis  ->  {url}")
     print("ctrl-c to stop")
+
     threading.Timer(0.4, lambda: webbrowser.open(url)).start()
     try:
         server.serve_forever()

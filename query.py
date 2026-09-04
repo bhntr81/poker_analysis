@@ -26,6 +26,8 @@ dropping the conditions it cannot express -- would answer a different
 question under the same heading. So the filter selects decisions, and the
 money is summed over the hands those decisions happened in.
 
+    python query.py --pool --pos BB --vs BTN --pot 3bet
+    python query.py --hero --pos BB --vs BTN --vs-pool --pot 3bet
     python query.py --pool --pot 3bet --street flop --ip
     python query.py --player dblj32 --pos BTN --stats
     python query.py --hero --board mono --results
@@ -57,6 +59,13 @@ VALUE_FLAGS = {
     "--site": "site = {v}",
     "--player": "player = {v}",
     "--pos": "position IN ({list})",
+    # The matchup. `--pos BB --vs BTN --pot 3bet` is "big blind against a
+    # button open, in a 3-bet pot", which is the shape most real questions
+    # about a pool actually have. Add `--vs-hero` or `--vs-pool` to say
+    # which side of the table the other seat is.
+    "--vs": "vs_pos IN ({list})",
+    "--opener": "opener_pos IN ({list})",
+    "--raiser": "pfa_pos IN ({list})",
     "--street": "street IN ({list})",
     "--pot": "pot_type IN ({list})",
     "--facing": "facing IN ({list})",
@@ -87,6 +96,8 @@ SWITCHES = {
     "--multiway": "n_live > 2",
     "--headsup": "n_live = 2",
     "--vs-pfa": "vs_pfa = 1",
+    "--vs-hero": "vs_hero = 1",
+    "--vs-pool": "vs_hero = 0",
     "--standard": "standard = 1",
 }
 
@@ -114,6 +125,12 @@ DIMENSIONS = {
         ["preflop", "flop", "turn", "river"].index(k)
         if k in ("preflop", "flop", "turn", "river") else 99)),
     "facing": ("facing", str),
+    "vs": ("vs_pos", lambda k: (
+        ["UTG", "HJ", "CO", "BTN", "SB", "BB"].index(k)
+        if k in ("UTG", "HJ", "CO", "BTN", "SB", "BB") else 99)),
+    "opener": ("opener_pos", lambda k: (
+        ["UTG", "HJ", "CO", "BTN", "SB", "BB"].index(k)
+        if k in ("UTG", "HJ", "CO", "BTN", "SB", "BB") else 99)),
     "players": ("n_players", lambda k: float(k or 0)),
     "hi": ("fl_hi", str),
 }
@@ -200,6 +217,15 @@ def build(argv):
 # not. A filter combining any of these with "preflop" is not broken -- it is
 # asking for something that cannot have happened -- but it returns nothing
 # and looks broken, so the reason is kept here to be said out loud.
+# Columns that are null when the pot is not heads up, which is a
+# legitimate emptiness rather than a mistake and so gets its reason too.
+MULTIWAY_NULL = {
+    "vs_pos": "there is only an 'opponent' while one player is left in the "
+              "pot -- a multiway decision has no single other seat",
+    "vs_hero": "there is only an 'opponent' while one player is left in the "
+               "pot -- a multiway decision has no single other seat",
+    "opener_pos": "nobody opened -- that is a limped pot",
+}
 ONLY_POSTFLOP = {
     "is_ip": "who acts last is only settled once the flop is out",
     "is_pfa": "there is no preflop aggressor until preflop is over",
@@ -243,6 +269,10 @@ def why_empty(con, parts):
                 continue
             hint = ""
             pre = "preflop" in (s1 + s2)
+            for col, reason in MULTIWAY_NULL.items():
+                if col in s1 + s2:
+                    hint = f" -- {reason}"
+                    break
             for col, reason in ONLY_POSTFLOP.items():
                 if col in s1 + s2 and pre:
                     hint = f" -- {reason}"
