@@ -273,7 +273,7 @@ CREATE INDEX IF NOT EXISTS hands_fmt ON hands(fmt, bb);
 FILENAME_RE = re.compile(r" - (RING|ZONE|MTT) - (?:\$([\d.]+)-\$([\d.]+))?", re.I)
 
 
-def build(folder, db_path=DB):
+def build(folder, db_path=DB, files=None):
     """
     Load every hand not already stored.
 
@@ -290,7 +290,10 @@ def build(folder, db_path=DB):
     known = {r[0] for r in con.execute("SELECT hand_id FROM hands")}
 
     added = skipped = files = 0
-    for f in sorted(Path(folder).rglob("*.txt")):
+    # iles lets a caller hand over an explicit list, which is what
+    # the importer does when one folder holds two sites and each
+    # file has to go to the parser that wrote it.
+    for f in (files if files is not None else sorted(Path(folder).rglob("*.txt"))):
         files += 1
         fm = FILENAME_RE.search(f.name)
         fmt = fm.group(1).upper() if fm else "?"

@@ -20,6 +20,10 @@ asserts the equality rather than trusting it.
 
     python app.py           open it
     python app.py --check   the window and the command line agree
+
+Hands come in through the Import menu -- a folder, a file, another database,
+or whatever it can find on this computer. Nothing there asks which site the
+hands are from; every file is identified by reading it.
 """
 
 import queue
@@ -27,11 +31,11 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import font as tkfont
-from tkinter import ttk
+from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 import sqlite3
 
+import importer
 import query
 from stats import BY_KEY, STATS
 
@@ -127,7 +131,167 @@ def dark(root):
     return style
 
 
-class App(ttk.Frame):
+class Progress(tk.Toplevel):
+    """
+    A window that says what the import is doing while it does it.
+
+    Loading a season of hand histories takes minutes and rebuilding the
+    derived tables takes minutes more. Without this the application simply
+    stops responding, and the only available conclusion is that it has
+    crashed.
+    """
+
+    def __init__(self, master, title):
+        super().__init__(master)
+        self.title(title)
+        self.configure(background=BG)
+        self.geometry("560x300")
+        self.transient(master)
+        self.text = tk.Text(self, background=BG, foreground=INK, borderwidth=0,
+                            font=("Consolas", 10), padx=14, pady=12,
+                            insertbackground=BG)
+        self.text.pack(fill="both", expand=True)
+        self.close = ttk.Button(self, text="close", command=self.destroy,
+                                state="disabled")
+        self.close.pack(pady=(0, 10))
+        self.protocol("WM_DELETE_WINDOW", lambda: None)
+
+    def say(self, line):
+        self.text.insert("end", line + "\n")
+        self.text.see("end")
+        self.update_idletasks()
+
+    def done(self):
+        self.close.configure(state="normal")
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+
+
+class ImportMixin:
+    """Everything the Import menu does. Kept apart because none of it is UI."""
+
+    def _menu(self, root):
+        bar = tk.Menu(root, background=PANEL, foreground=INK,
+                      activebackground=ACCENT, activeforeground=BG,
+                      borderwidth=0)
+        m = tk.Menu(bar, tearoff=0, background=PANEL, foreground=INK,
+                    activebackground=ACCENT, activeforeground=BG)
+        m.add_command(label="Find hands on this computer…",
+                      command=self.import_autodetect)
+        m.add_separator()
+        m.add_command(label="Import a folder…", command=self.import_folder)
+        m.add_command(label="Import a file…", command=self.import_file)
+        m.add_command(label="Merge another database…", command=self.import_db)
+        bar.add_cascade(label="Import", menu=m)
+        root.configure(menu=bar)
+
+    def _run_import(self, title, work):
+        """
+        Every import runs on a thread, reporting into a window.
+
+        The rebuild afterwards is not optional and is why it is here rather
+        than left to the caller: loading writes to `hands`, `seats` and
+        `actions`, and every question this program answers is asked of the
+        tables derived from them. An import without the rebuild looks like an
+        import that did nothing.
+        """
+        win = Progress(self.master, title)
+        lines = queue.Queue()
+
+        def go():
+            try:
+                got = work(lines.put)
+                lines.put(("done", got))
+            except Exception as e:
+                lines.put(("failed", f"{type(e).__name__}: {e}"))
+
+        threading.Thread(target=go, daemon=True).start()
+
+        def pump():
+            try:
+                while True:
+                    item = lines.get_nowait()
+                    if isinstance(item, tuple):
+                        kind, payload = item
+                        if kind == "failed":
+                            win.say("")
+                            win.say(payload)
+                        else:
+                            win.say("")
+                            win.say(str(payload))
+                            self.con = sqlite3.connect(DB, check_same_thread=False)
+                            self.load_options()
+                            self.refresh()
+                        win.done()
+                        return
+                    win.say(item)
+            except queue.Empty:
+                pass
+            win.after(120, pump)
+        win.after(120, pump)
+
+    def import_autodetect(self):
+        found = importer.scan()
+        if not found:
+            messagebox.showinfo(
+                "nothing found",
+                "No hand histories in the usual places.\n\n"
+                "Use Import a folder… and point it at wherever your site "
+                "writes them.")
+            return
+        summary = "\n".join(
+            f"{p['ignition']:>5} ignition   {p['acr']:>5} acr   {p['path']}"
+            for p in found)
+        if not messagebox.askyesno(
+                "found these", summary + "\n\nImport all of them?"):
+            return
+        paths = [p["path"] for p in found]
+        self._run_import("importing", lambda say: self._do_load(paths, say))
+
+    def import_folder(self):
+        folder = filedialog.askdirectory(title="folder of hand histories")
+        if folder:
+            self._run_import("importing",
+                             lambda say: self._do_load([folder], say))
+
+    def import_file(self):
+        files = filedialog.askopenfilenames(
+            title="hand history files",
+            filetypes=[("hand histories", "*.txt"), ("all files", "*.*")])
+        if files:
+            self._run_import("importing",
+                             lambda say: self._do_load(list(files), say))
+
+    def import_db(self):
+        other = filedialog.askopenfilename(
+            title="another hands.db", filetypes=[("database", "*.db")])
+        if not other:
+            return
+
+        def work(say):
+            say(f"merging {other}")
+            got = importer.merge(other, DB, progress=say)
+            importer.rebuild(progress=say)
+            return f"{got['added']} hands merged, {got['known']} already known"
+        self._run_import("merging", work)
+
+    @staticmethod
+    def _do_load(paths, say):
+        say("looking at the files…")
+        survey = importer.survey(paths)
+        say(f"  {len(survey['ignition'])} ignition, {len(survey['acr'])} acr, "
+            f"{len(survey['unknown'])} not recognised")
+        if not survey["ignition"] and not survey["acr"]:
+            return "nothing to import"
+        got = importer.load(paths, DB, progress=say)
+        say(f"{got['added']} hands added, {got['known']} already known")
+        if got["added"]:
+            importer.rebuild(progress=say)
+        return (f"{got['added']} hands added"
+                + (f", {got['unknown']} files unrecognised"
+                   if got["unknown"] else ""))
+
+
+class App(ImportMixin, ttk.Frame):
     def __init__(self, master):
         super().__init__(master)
         self.pack(fill="both", expand=True)
@@ -763,6 +927,7 @@ def main(argv):
     root.minsize(1050, 640)
     dark(root)
     app = App(root)
+    app._menu(root)
     app.load_options()
     root.mainloop()
     return 0

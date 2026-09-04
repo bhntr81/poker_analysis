@@ -356,13 +356,16 @@ def migrate(con):
     con.commit()
 
 
-def build(folder, db_path=DB):
+def build(folder, db_path=DB, files=None):
     con = sqlite3.connect(db_path)
     migrate(con)
     known = {r[0] for r in con.execute("SELECT hand_id FROM hands")}
 
     added = skipped = files = 0
-    for f in sorted(Path(folder).rglob("*.txt")):
+    # iles lets a caller hand over an explicit list, which is what
+    # the importer does when one folder holds two sites and each
+    # file has to go to the parser that wrote it.
+    for f in (files if files is not None else sorted(Path(folder).rglob("*.txt"))):
         files += 1
         try:
             text = f.read_text(encoding="utf-8", errors="replace")

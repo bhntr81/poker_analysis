@@ -30,6 +30,7 @@ CHECKS = [
     ("decisions", "the per-decision derivation, against spots exactly"),
     ("stats", "the stat engine, against spots where they overlap"),
     ("opponents", "opponent profiles: deviations really clear their intervals"),
+    ("importer", "the site detector, against hands already loaded"),
     ("equity", "the hand evaluator, against published equities"),
     ("query", "the filter surface: every filter runs, and every one narrows"),
     ("gui", "the page and the command line build the same filter"),
