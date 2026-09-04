@@ -623,7 +623,7 @@ def check(db_path=DB):
         "SELECT played_at FROM decisions ORDER BY played_at "
         "LIMIT 1 OFFSET (SELECT COUNT(*) / 2 FROM decisions)").fetchone()[0]
     samples = {
-        "--site": "coinpoker", "--pos": "BTN", "--street": "flop",
+        "--site": "acr", "--pos": "BTN", "--street": "flop",
         "--pot": "3bet", "--facing": "bet", "--combo": "AKs",
         "--stake": "0.1", "--deep": "50", "--short": "200",
         "--players": "6", "--live": "2",

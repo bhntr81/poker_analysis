@@ -1,5 +1,5 @@
 """
-Load CoinPoker hand histories into the same database Ignition writes to.
+Load ACR hand histories into the same database Ignition writes to.
 
 The two sites are worth having together because each has exactly what the
 other lacks.
@@ -7,22 +7,31 @@ other lacks.
   Ignition  shows every player's hole cards, folds included -- so a range
             can be counted rather than inferred -- but names nobody, so a
             player is only "table:seat" and only within one session.
-  CoinPoker names everyone. A player followed across months is a profile,
-            which is the thing a HUD is for. What it will not show is a
-            folded hand, so ranges here are inferred, not seen.
+  ACR       names everyone. A player followed across months is a profile,
+            which is the thing an opponent report is for. What it will not
+            show is a folded hand, so ranges here are inferred, not seen.
 
-So Ignition measures the pool and CoinPoker measures the person, and the
+This loader reads the Winning Poker Network format, which ACR is on. It was
+written believing the hands were ACR's, on the evidence that a
+ACR client was installed on the machine -- the site was inferred from
+the computer rather than from the data, which is exactly the assumption
+`EmpiricalRigor` exists to forbid. The data says otherwise and says it
+plainly: the fast-fold game is called "Blitz Poker", the tables are named
+after American towns, the pot loses a "JP Fee", and the stakes are dollars
+rather than chips. All four are ACR and none of them is ACR.
+
+So Ignition measures the pool and ACR measures the person, and the
 interesting work is using the first as the prior for the second. That only
 happens if both land in one schema, which is what this does: the same hands
 / seats / actions tables, the same position names, the same money
 convention (`won` is what came back from the pot, never profit).
 
-Two things CoinPoker gives that Ignition does not: the button is stated
+Two things ACR gives that Ignition does not: the button is stated
 outright, so positions are read rather than reconstructed from labels, and
 rake is written on every pot.
 
-    python coinpoker.py <folder>     load, or top up, the database
-    python coinpoker.py --stats      what is in there, per site
+    python acr.py <folder>     load, or top up, the database
+    python acr.py --stats      what is in there, per site
 """
 
 import re
@@ -304,7 +313,7 @@ def parse_hand(text, source=""):
                  "pot": _money(pot_m.group(1)) if pot_m else None,
                  "rake": rake, "jp_fee": jp,
                  "hero_seat": hero["seat"] if hero else None,
-                 "standard": standard, "source": source, "site": "coinpoker",
+                 "standard": standard, "source": source, "site": "acr",
                  "max_seats": max_seats},
         "seats": seats,
         "actions": actions,
@@ -328,7 +337,7 @@ def migrate(con):
 
     Existing Ignition hand ids are left exactly as they are. Rewriting 3,942
     hands across four tables to gain a prefix they do not need would be
-    churn; CoinPoker ids carry a "cp-" instead, which makes a collision
+    churn; ACR ids carry a "cp-" instead, which makes a collision
     between the two sites impossible either way.
     """
     cols = {r[1] for r in con.execute("PRAGMA table_info(hands)")}
@@ -407,7 +416,7 @@ def stats(db_path=DB):
         print(f"  {site:10} {fmt:6} {('$%.2f' % bb) if bb else '-':>7}  {n:6d}")
 
     print("\ncoverage of what each site actually shows:")
-    for site in ("ignition", "coinpoker"):
+    for site in ("ignition", "acr"):
         row = con.execute(
             "SELECT COUNT(*), SUM(s.cards IS NOT NULL), COUNT(DISTINCT s.label) "
             "FROM seats s JOIN hands h USING(hand_id) "
@@ -430,7 +439,7 @@ def stats(db_path=DB):
     con.close()
 
 
-CP = "COALESCE(h.site,'ignition')='coinpoker'"
+CP = "h.site='acr'"
 
 
 def check(db_path=DB):

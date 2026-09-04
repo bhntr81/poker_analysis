@@ -100,7 +100,7 @@ def profile(con, player, site, baseline=None):
     """
     Every stat where this player is measurably not the pool.
 
-    The baseline is the pool ON THEIR OWN SITE. Comparing a CoinPoker player
+    The baseline is the pool ON THEIR OWN SITE. Comparing a ACR player
     against a mixed baseline would make every one of them look tight, since
     the Ignition pool in this database is looser -- the deviation would be
     between two populations rather than between a player and their peers.
@@ -172,7 +172,7 @@ def show(con, player, site):
     return len(devs)
 
 
-def leaderboard(con, site="coinpoker", limit=15):
+def leaderboard(con, site="acr", limit=15):
     """
     Who is worth having a plan for.
 
@@ -241,7 +241,7 @@ def check(db_path=DB):
     """
     con = sqlite3.connect(db_path)
     fails = []
-    rows = leaderboard(con, "coinpoker", limit=0)
+    rows = leaderboard(con, "acr", limit=0)
 
     # (a) re-derive every reported deviation the long way and confirm the
     #     intervals really are disjoint. The report is not trusted to have
@@ -250,7 +250,7 @@ def check(db_path=DB):
     for count, h, p, devs in rows:
         for s, n, pr, bp, way, _gap in devs:
             _, _, _, lo, hi = rate(con, s, "player=? AND standard=1", (p,))
-            _, _, _, blo, bhi = rate(con, s, f"{POOL} AND site='coinpoker'")
+            _, _, _, blo, bhi = rate(con, s, f"{POOL} AND site='acr'")
             checked += 1
             if not (lo > bhi or hi < blo):
                 bad += 1
@@ -263,7 +263,7 @@ def check(db_path=DB):
     # (b) and (c)
     total = con.execute(
         "SELECT COUNT(*) FROM (SELECT player FROM decisions WHERE "
-        "site='coinpoker' AND is_hero=0 AND player IS NOT NULL "
+        "site='acr' AND is_hero=0 AND player IS NOT NULL "
         "GROUP BY player)").fetchone()[0]
     print(f"opponents seen          {total}")
     print(f"profiled ({MIN_HANDS}+ hands)  {len(rows)}")

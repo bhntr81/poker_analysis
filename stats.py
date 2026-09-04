@@ -425,11 +425,11 @@ def main(argv):
         safe = name.replace("'", "''")
         report(con, f"player='{safe}' AND standard=1", f"{name}")
         return 0
-    for site in ("ignition", "coinpoker"):
+    for site in ("ignition", "acr"):
         report(con, f"{POOL} AND site='{site}'", f"pool: {site}")
     by_position(con, ["rfi", "threebet", "fold_to_cbet"],
-                f"{POOL} AND site='coinpoker'",
-                "coinpoker pool, by position")
+                f"{POOL} AND site='acr'",
+                "acr pool, by position")
     return 0
 
 

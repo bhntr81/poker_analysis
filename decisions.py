@@ -185,7 +185,7 @@ def build(db_path=DB):
 
             agg = int(is_aggressive(a))
             amount, total = a["amount"] or 0.0, a["total"]
-            # Whether this action put the last chip in. CoinPoker says so
+            # Whether this action put the last chip in. ACR says so
             # outright; Ignition writes an all-in RAISE as an ordinary raise
             # and reserves "All-in" for its shoves, so on that site it has to
             # be worked out -- and it must be, because an all-in player takes

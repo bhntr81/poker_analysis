@@ -63,16 +63,16 @@ scoped to engineering rather than to irreversible acts.
 ### Fixed — four modules were silently averaging two pools
 
 The worst defect this project has had, and it was introduced by loading
-CoinPoker rather than by any change to the modules themselves.
+ACR rather than by any change to the modules themselves.
 
 `fmt='RING'` used to mean Ignition, because Ignition was the only site.
-After the CoinPoker import it matched both, and four modules filtering on it
+After the ACR import it matched both, and four modules filtering on it
 were never updated:
 
 | module | what it became |
 |---|---|
 | `population.py` | its pool went from **100% hole-card coverage to 33.4%** |
-| `walk.py` | priced CoinPoker hands against an NL25-with-rake solver cache |
+| `walk.py` | priced ACR hands against an NL25-with-rake solver cache |
 | `postflop.py` | same, for hero's flops |
 | `spots.py --check` | sanity figures averaging two different games |
 
@@ -110,7 +110,7 @@ individually fine and the set of them is wrong.
 What one opponent does differently from the pool, and what to do about it.
 Reports a stat only when the player's 95% interval and the pool's do not
 overlap. The baseline is the pool on the player's **own site**, since a
-mixed baseline would make every CoinPoker player look tight against the
+mixed baseline would make every ACR player look tight against the
 looser Ignition pool.
 
 ### Added — `stats.py`, 35 stats as declarations
@@ -149,9 +149,9 @@ all-in beforehand.
 The point is that a new question no longer needs a new derivation. Fold to
 cbet and delayed turn probe are now the same kind of object.
 
-### Added — `coinpoker.py`
+### Added — `acr.py`
 
-CoinPoker histories into the same schema, 8,019 hands from 146 files. The
+ACR histories into the same schema, 8,019 hands from 146 files. The
 site gives two things Ignition does not: the button is stated outright, so
 positions are read rather than reconstructed from labels, and rake is
 written on every pot.
@@ -164,17 +164,17 @@ over 100 hands.
 ### Changed — identity, and a `site` column
 
 `spots.identify()` now decides who a player is for both sites in one place.
-CoinPoker writes the name, which is the same person months later, including
+ACR writes the name, which is the same person months later, including
 on Blitz where the table changes every hand. Ignition writes nobody, so
 identity stays `table:seat:segment` and dies with the session; Zone seats
 are left unnamed rather than merged into a stranger.
 
 `site` is now on `hands`, `spots`, `bets` and `decisions`. **Anything that
-used to say `fmt='RING'` now also needs `site=`** — CoinPoker ring hands
+used to say `fmt='RING'` now also needs `site=`** — ACR ring hands
 match that filter too.
 
 Ignition hand ids were left exactly as they were; rewriting 3,942 hands
-across four tables to gain a prefix they do not need is churn. CoinPoker ids
+across four tables to gain a prefix they do not need is churn. ACR ids
 carry `cp-`, which makes a collision impossible either way.
 
 ### Added — `standard` on `spots`
@@ -185,10 +185,10 @@ could not be filtered out downstream. Now they can.
 
 ### Fixed — the jackpot fee
 
-CoinPoker takes a jackpot fee as well as rake: `Total pot $1.52 | Rake $0.05
+ACR takes a jackpot fee as well as rake: `Total pot $1.52 | Rake $0.05
 | JP Fee $0.02`. Counting only the rake left a hole in one hand in five. It
 would have biased every win rate and every pot-relative bet size in the
-CoinPoker half of the database, and it raised no error.
+ACR half of the database, and it raised no error.
 
 ### Fixed — dead posts
 
@@ -203,7 +203,7 @@ it reaches every showdown it is dealt into — the pool's showdown rate read
 **47.7%** against a true 29.6%. It also made every position one seat wrong,
 because the ring it was counted in was one seat too big.
 
-Fixed in the CoinPoker loader, and guarded in `spots.py` where 59 of them
+Fixed in the ACR loader, and guarded in `spots.py` where 59 of them
 existed in Ignition tournament hands.
 
 ### Fixed — Ignition's all-in raises

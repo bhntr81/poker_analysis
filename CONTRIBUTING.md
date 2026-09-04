@@ -22,7 +22,7 @@ would have raised an error:
 
 | what was wrong | how it was caught |
 |---|---|
-| CoinPoker takes a **jackpot fee** as well as rake | money stopped adding up in 1 hand in 5 |
+| ACR takes a **jackpot fee** as well as rake | money stopped adding up in 1 hand in 5 |
 | a returning player posts with a bare `posts $0.05`, naming no blind | money still short in 1 hand in 60 |
 | seats listed at the table but **not dealt in** ("waits for big blind") | pool showdown rate 20 points too high |
 | Ignition writes an all-in **raise** as an ordinary raise | players who could not act looked like players who declined to |
@@ -71,7 +71,7 @@ below it leaves a database that is internally inconsistent in a way no
 single check would catch.
 
 ```
-ignition.py / coinpoker.py      raw hands
+ignition.py / acr.py      raw hands
         v
 spots.py                        one row per player per hand
         v
@@ -184,7 +184,7 @@ and they are the ones that bind hardest here:
   for the checks: a parser that fails silently cannot be caught by reading
   the code, only by a number that would move.
 - **`Perceptivity`** — know what a change does to its callers. Violated on
-  2 Sep 2026: adding CoinPoker changed what `fmt='RING'` selects, and four
+  2 Sep 2026: adding ACR changed what `fmt='RING'` selects, and four
   modules filtering on it were left alone.
 - **`AppropriateComplexity`** — minimum necessary complexity, over- and
   under-engineering equally wrong.

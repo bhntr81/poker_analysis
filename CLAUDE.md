@@ -1,6 +1,6 @@
 # poker_analysis
 
-A poker tracker over CoinPoker and Ignition hand histories, built from
+A poker tracker over ACR and Ignition hand histories, built from
 scratch.
 
 **Scope, and it is narrow on purpose: the tracking and filtering half of a
@@ -59,7 +59,7 @@ do not exist here. The substance still applies; the mechanism changes:
 history parser fails **silently** — it drops a line it misreads and every
 figure downstream comes out slightly wrong and entirely plausible. And on
 2 Sep 2026 `Perceptivity` was violated exactly as the maxim describes:
-loading CoinPoker made `fmt='RING'` match two sites, and four modules that
+loading ACR made `fmt='RING'` match two sites, and four modules that
 filter on it were not updated. `population.py`'s pool silently went from
 100% hole-card coverage to 33%.
 
@@ -71,7 +71,7 @@ Tables are derived from each other. Rebuilding one and not the ones below it
 leaves a database that is consistent nowhere and looks fine everywhere.
 
 ```
-ignition.py / coinpoker.py  ->  spots.py  ->  decisions.py  ->  stats.py, profile.py
+ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  stats.py, profile.py
 ```
 
 `hands.db` is gitignored and is the only copy. `cp hands.db hands.db.bak`
@@ -97,14 +97,14 @@ of reason per row.
 
 Facts that stay true, and that have each been got wrong at least once:
 
-- **`fmt='RING'` no longer identifies a pool.** CoinPoker ring hands match
+- **`fmt='RING'` no longer identifies a pool.** ACR ring hands match
   it too. Every population query needs `site=` as well, or it is averaging
   two different games into a number that describes neither.
 - **Ignition is the only site that shows folded hands.** `population.py`,
   `walk.py` and `postflop.py` are pinned to `site='ignition'` because their
-  premise is revealed ranges, and CoinPoker reveals 23%.
+  premise is revealed ranges, and ACR reveals 23%.
 - **The cached solver nodes are one gametype**: 6-max NL25 with rake.
-  Pricing a $0.02 or $0.50 CoinPoker hand against them prices it at the
+  Pricing a $0.02 or $0.50 ACR hand against them prices it at the
   wrong stake.
 - **`won` is what came back from the pot, never profit.** Profit is
   `won - posted - invested`. Summing `won` alone once said hero was up

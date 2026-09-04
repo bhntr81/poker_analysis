@@ -1,7 +1,7 @@
 # poker_analysis
 
 A poker tracker built from scratch, over our own hand histories from
-**CoinPoker** and **Ignition**.
+**ACR** and **Ignition**.
 
 Import hands, build a database, and ask it anything about any player or the
 pool, filtered any way you like. It never tells you what is *correct*. It
@@ -27,7 +27,7 @@ them.
 Because of what these two sites happen to give away, and the fact that no
 commercial tracker holds both at once.
 
-|  | Ignition | CoinPoker |
+|  | Ignition | ACR |
 |---|---|---|
 | hole cards | **every player's, folds included** | hero's, plus showdowns (23%) |
 | identity | none — a seat, and only within a session | **real names, persisting for months** |
@@ -38,10 +38,10 @@ at showdown — which are not a fair sample of the hands they held — but every
 folded hand too. That means a population's range at a spot can be *counted*
 rather than inferred. Almost no site allows this.
 
-CoinPoker gives what Ignition cannot: a name that is the same person next
+ACR gives what Ignition cannot: a name that is the same person next
 week, at another table, at another stake. 51 opponents here have 150+ hands.
 
-**Ignition measures the population. CoinPoker measures the person.** The
+**Ignition measures the population. ACR measures the person.** The
 thing worth building — and the reason this is not a worse copy of software
 that already exists — is using the first as the prior for the second.
 
@@ -49,7 +49,7 @@ that already exists — is using the first as the prior for the second.
 
 ```
 ignition.py     load Ignition hand histories
-coinpoker.py    load CoinPoker hand histories        --check
+acr.py    load ACR hand histories        --check
         v
 spots.py        one row per player per hand          --check
 decisions.py    one row per decision, 50 columns     --check
@@ -79,7 +79,7 @@ a solver. See **Scope** above.
 |---|---|
 | hands | 11,961 (May 2025 – Aug 2026) |
 | decisions | 93,600 |
-| CoinPoker / Ignition | 8,019 / 3,942 |
+| ACR / Ignition | 8,019 / 3,942 |
 | named opponents with 150+ hands | 51 |
 | cached solver nodes | 1,510 |
 
@@ -93,7 +93,7 @@ modules need anything installed (Playwright, and a GTO Wizard subscription).
 
 ```bash
 python ignition.py  "path/to/ignition/histories"
-python coinpoker.py "path/to/coinpoker/histories"
+python acr.py "path/to/acr/histories"
 python spots.py
 python decisions.py
 python check.py

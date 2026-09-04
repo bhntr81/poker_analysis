@@ -2,7 +2,7 @@
 
 This is the run log of a DIFFERENT project. On 1 Sep 2026 the hand-history
 and database work (`spots`, `decisions`, `population`, `leaks`, `poptree`,
-`stats`, `walk`, `bestresponse`, `postflop`, `profile`, `coinpoker`,
+`stats`, `walk`, `bestresponse`, `postflop`, `profile`, `acr`,
 `ignition`) moved to `Desktop/poker_analysis` with its own git history.
 None of those modules exist in this repo any more.
 
@@ -637,7 +637,7 @@ the user is consulted.
 
 ## CEO — the vision, and the odds
 
-**The vision.** One tracker over CoinPoker and Ignition that answers any
+**The vision.** One tracker over ACR and Ignition that answers any
 question about either pool, or about one named player, without new code
 being written for the question.
 
@@ -647,11 +647,11 @@ exactly the way that matters, and no commercial tracker joins them:
 
   * **Ignition shows every folded hand.** The pool's range at a spot can be
     *counted*. Not inferred from showdowns -- counted, all 18,802 of them.
-  * **CoinPoker names every player.** 777 opponents, 89 of them with 100+
+  * **ACR names every player.** 777 opponents, 89 of them with 100+
     hands. Identity persists across months, which is what a profile needs.
 
-Ignition measures the population. CoinPoker measures the person. A tracker
-holding both can price a named CoinPoker opponent against a range that was
+Ignition measures the population. ACR measures the person. A tracker
+holding both can price a named ACR opponent against a range that was
 *observed* on Ignition rather than assumed -- the strongest form of the
 prior-and-update every HUD gestures at and none of them can actually do.
 
@@ -667,16 +667,16 @@ DOWN while the count of answerable questions goes up.
    is a filter rather than a column.
 3. A stat engine: any stat, any filter, with n and an error bar, by name.
 4. Player and pool reports built on that engine, not on new SQL.
-5. The join that only we can make -- Ignition range as prior, CoinPoker
+5. The join that only we can make -- Ignition range as prior, ACR
    player as evidence.
 
 **Short-term goal for the PM:** iterations 1-5 deliver 1-4, each with a
 number checked by a command. Iteration 5 proves 5 is reachable or reports
 that it is not.
 
-## Run 8 / iteration 1 — CoinPoker into the same schema
+## Run 8 / iteration 1 — ACR into the same schema
 
-**PM's goal, set beforehand:** `coinpoker.py` loads the CoinPoker histories
+**PM's goal, set beforehand:** `acr.py` loads the ACR histories
 into the existing hands / seats / actions tables, verified by (a) money adds
 up in ≥99% of hands -- everything in comes back out minus the house's cut;
 (b) positions are balanced across the six seats to within 2%; (c) blinds are
@@ -696,26 +696,26 @@ named opponents           777  (306 with 30+ hands, 89 with 100+, 7 with 500+)
 **What the money check caught, twice.** It failed first at 79.4%, then at
 98.4%, and both causes were real:
 
-1. CoinPoker takes a **jackpot fee** as well as rake -- `Total pot $1.52 |
+1. ACR takes a **jackpot fee** as well as rake -- `Total pot $1.52 |
    Rake $0.05 | JP Fee $0.02`. Counting only the rake leaves a hole in one
    hand in five.
 2. A returning player posts with a bare `posts $0.05`, naming no blind. The
    regex wanted a blind named, so that money vanished from the pot.
 
 Neither would have crashed anything. Both would have quietly biased every
-win-rate and every pot-size-relative bet in the CoinPoker half of the
+win-rate and every pot-size-relative bet in the ACR half of the
 database. This is the argument for the check existing at all.
 
 **What the corpus now is.**
 
-| | Ignition | CoinPoker |
+| | Ignition | ACR |
 |---|---|---|
 | hands | 3,942 | 8,019 |
 | seats | 18,803 | 45,873 |
 | with hole cards | 100.0% | 21.7% |
 | distinct names | 9 (labels) | 777 |
 
-**One caveat recorded now rather than discovered later.** CoinPoker's Blitz
+**One caveat recorded now rather than discovered later.** ACR's Blitz
 tables (795 hands) move the player every hand like Ignition's Zone -- but
 unlike Zone, the names persist, so Blitz hands still count toward a profile.
 The `fmt` column separates them; the `site` column says which rules apply.
@@ -732,7 +732,7 @@ Two numbers per step: iterations, and what could make it take longer.
 
 | # | step | est | actual | risk |
 |---|---|---|---|---|
-| 1 | CoinPoker histories into the same schema | 1 | 1 | none left |
+| 1 | ACR histories into the same schema | 1 | 1 | none left |
 | 2 | Identity and derivation across both sites | 1 | 1 | none left |
 | 3 | Decision layer -- the stat vocabulary | 1 | 1 | none left |
 
@@ -741,7 +741,7 @@ Two numbers per step: iterations, and what could make it take longer.
 | # | step | est | risk |
 |---|---|---|---|
 | 4 | Stat engine: named stats, filters, n and error bars | 1 | low. The hard thinking is done; this is a registry over `decisions` |
-| 5 | Player report -- the numbers a HUD would show, per opponent | 1 | low, but **sample size binds**: 84 CoinPoker opponents have 100+ hands, and 100 hands is a VPIP, not a read |
+| 5 | Player report -- the numbers a HUD would show, per opponent | 1 | low, but **sample size binds**: 84 ACR opponents have 100+ hands, and 100 hands is a VPIP, not a read |
 | 6 | Pool report rebuilt on the engine, hardcoded SQL retired | 1 | medium. Seven modules exist; the goal is that the count goes DOWN |
 
 **End of phase 2 is the first genuinely usable tool** -- any stat, any
@@ -752,7 +752,7 @@ the overlay.
 
 | # | step | est | risk |
 |---|---|---|---|
-| 7 | Ignition-measured range as the prior for a named CoinPoker opponent | 2 | **high, and it is a modelling risk, not a coding one.** Two pools at two stakes are not the same population; the join has to be justified, not assumed |
+| 7 | Ignition-measured range as the prior for a named ACR opponent | 2 | **high, and it is a modelling risk, not a coding one.** Two pools at two stakes are not the same population; the join has to be justified, not assumed |
 | 8 | Postflop scoring through the GTO Wizard cache already built | 2-3 | medium. The machinery exists and is proven; the cost is fetch volume and the 1326-combo ordering already solved |
 
 ### Phase 4 — surface (5-8 iterations, and the only genuinely uncertain part)
@@ -773,7 +773,7 @@ away from it, and the analysis is where the money is.
 **The binding constraint is not code, it is hands.** 84 named opponents with
 100+ hands is enough to rank a pool and not enough to profile a person.
 Every phase-3 claim gets sharper with volume and with nothing else. Loading
-more CoinPoker sessions is worth more than any single iteration above.
+more ACR sessions is worth more than any single iteration above.
 
 ---
 
@@ -789,7 +789,7 @@ Two numbers per step: iterations, and what could make it take longer.
 
 | # | step | est | actual | risk |
 |---|---|---|---|---|
-| 1 | CoinPoker histories into the same schema | 1 | 1 | none left |
+| 1 | ACR histories into the same schema | 1 | 1 | none left |
 | 2 | Identity and derivation across both sites | 1 | 1 | none left |
 | 3 | Decision layer -- the stat vocabulary | 1 | 1 | none left |
 
@@ -798,7 +798,7 @@ Two numbers per step: iterations, and what could make it take longer.
 | # | step | est | risk |
 |---|---|---|---|
 | 4 | Stat engine: named stats, filters, n and error bars | 1 | low. The hard thinking is done; this is a registry over `decisions` |
-| 5 | Player report -- the numbers a HUD would show, per opponent | 1 | low, but **sample size binds**: 84 CoinPoker opponents have 100+ hands, and 100 hands is a VPIP, not a read |
+| 5 | Player report -- the numbers a HUD would show, per opponent | 1 | low, but **sample size binds**: 84 ACR opponents have 100+ hands, and 100 hands is a VPIP, not a read |
 | 6 | Pool report rebuilt on the engine, hardcoded SQL retired | 1 | medium. Seven modules exist; the goal is that the count goes DOWN |
 
 **End of phase 2 is the first genuinely usable tool** -- any stat, any
@@ -809,7 +809,7 @@ the overlay.
 
 | # | step | est | risk |
 |---|---|---|---|
-| 7 | Ignition-measured range as the prior for a named CoinPoker opponent | 2 | **high, and it is a modelling risk, not a coding one.** Two pools at two stakes are not the same population; the join has to be justified, not assumed |
+| 7 | Ignition-measured range as the prior for a named ACR opponent | 2 | **high, and it is a modelling risk, not a coding one.** Two pools at two stakes are not the same population; the join has to be justified, not assumed |
 | 8 | Postflop scoring through the GTO Wizard cache already built | 2-3 | medium. The machinery exists and is proven; the cost is fetch volume and the 1326-combo ordering already solved |
 
 ### Phase 4 — surface (5-8 iterations, and the only genuinely uncertain part)
@@ -830,4 +830,4 @@ away from it, and the analysis is where the money is.
 **The binding constraint is not code, it is hands.** 84 named opponents with
 100+ hands is enough to rank a pool and not enough to profile a person.
 Every phase-3 claim gets sharper with volume and with nothing else. Loading
-more CoinPoker sessions is worth more than any single iteration above.
+more ACR sessions is worth more than any single iteration above.

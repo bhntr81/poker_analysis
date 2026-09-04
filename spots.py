@@ -89,7 +89,7 @@ def identify(hands, seats_by):
     The two sites answer this completely differently and the difference is
     the whole reason for having both.
 
-      CoinPoker  writes the name. It is the same person next week, at
+      ACR  writes the name. It is the same person next week, at
                  another table, at another stake -- including on Blitz,
                  where the table changes every hand but the name does not.
       Ignition   writes nobody. A seat number persists only while somebody
@@ -104,7 +104,7 @@ def identify(hands, seats_by):
     for i, h in enumerate(hands):
         site = h["site"] if "site" in h.keys() else None
         for s in seats_by.get(h["hand_id"], []):
-            if (site or "ignition") == "coinpoker":
+            if (site or "ignition") == "acr":
                 out[(h["hand_id"], s["seat"])] = s["label"]
                 continue
             if h["fmt"] != "RING":
@@ -457,7 +457,7 @@ def check(db_path=DB):
         # neither, and the whole point of these lines is that a broken
         # derivation shows up as a number with the wrong shape.
         cells = []
-        for site in ("ignition", "coinpoker"):
+        for site in ("ignition", "acr"):
             got, tot = one("SELECT SUM({}), SUM({}) FROM spots WHERE "
                            "fmt='RING' AND n_players>=5 AND site='{}'".format(
                                num, den, site))

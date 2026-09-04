@@ -14,30 +14,30 @@ only what is new. That is the intended way to use them as you keep playing.
 python ignition.py  "C:/path/to/ignition/HH"      # load, or top up
 python ignition.py  --stats                       # what is in there
 
-python coinpoker.py "C:/path/to/coinpoker/HH"     # load, or top up
-python coinpoker.py --stats                       # per-site breakdown
-python coinpoker.py --check                       # prove the import
+python acr.py "C:/path/to/acr/HH"     # load, or top up
+python acr.py --stats                       # per-site breakdown
+python acr.py --check                       # prove the import
 ```
 
 Both walk the folder recursively for `*.txt`. Omaha files are skipped.
-CoinPoker hand ids are prefixed `cp-` so the two sites can never collide.
+ACR hand ids are prefixed `cp-` so the two sites can never collide.
 
 ### Reading `--stats`
 
 ```
 hands by site and format:
-  coinpoker  RING     $0.10    3697
-  coinpoker  BLITZ    $0.25     795
+  acr  RING     $0.10    3697
+  acr  BLITZ    $0.25     795
   ignition   ZONE     $0.25     749
 
 coverage of what each site actually shows:
   ignition     18803 seats,   18802 with cards (100.0%),      9 distinct names
-  coinpoker    43666 seats,   10132 with cards ( 23.2%),    777 distinct names
+  acr    43666 seats,   10132 with cards ( 23.2%),    777 distinct names
 ```
 
-`fmt` is `RING`, `BLITZ` (CoinPoker's fast-fold), `ZONE` (Ignition's) or
+`fmt` is `RING`, `BLITZ` (ACR's fast-fold), `ZONE` (Ignition's) or
 `MTT`. The coverage block is the point of having both sites: Ignition's
-100% is every folded hand; CoinPoker's 777 names are identity.
+100% is every folded hand; ACR's 777 names are identity.
 
 Your own results are shown as `won - posted - invested`, which is profit.
 Beware any tracker — including an earlier version of this one — that reports
@@ -91,7 +91,7 @@ filter, and silently drops the ones that cannot — asking for a preflop stat
 inside `--street flop` gives nothing, which is correct rather than a bug.
 
 ```
-filter: pool, site coinpoker, pot 3bet, street flop, ip
+filter: pool, site acr, pot 3bet, street flop, ip
 524 decisions match
 
   [flop]
@@ -109,7 +109,7 @@ in position on a monotone flop won or lost the whole pot, not the part of it
 after the flop.
 
 ```
-filter: hero, site coinpoker, board mono
+filter: hero, site acr, board mono
   hands                  69
   net                +307.4 bb   ($+47.34)
   per 100 hands      +445.6 bb/100
@@ -201,7 +201,7 @@ do about it:
 ```
 
 `^` is above the pool, `v` is below. The baseline is the pool **on their own
-site**, since comparing a CoinPoker player against a mixed baseline would
+site**, since comparing a ACR player against a mixed baseline would
 make every one of them look tight.
 
 A player with nothing listed is not a failure of the tool. It means that on
@@ -238,7 +238,7 @@ python check.py --quiet         # just the verdicts
 ```
 
 ```
-  PASS  coinpoker
+  PASS  acr
   PASS  spots
   PASS  decisions
   PASS  stats

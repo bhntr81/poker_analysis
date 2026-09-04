@@ -284,6 +284,9 @@ def build(folder, db_path=DB):
     """
     con = sqlite3.connect(db_path)
     con.executescript(SCHEMA)
+    # Both loaders write the same tables, so both must bring them up to date.
+    from acr import migrate
+    migrate(con)
     known = {r[0] for r in con.execute("SELECT hand_id FROM hands")}
 
     added = skipped = files = 0
@@ -306,18 +309,31 @@ def build(folder, db_path=DB):
                 skipped += 1
                 continue
             known.add(h["hand_id"])
-            con.execute("INSERT INTO hands VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                        (h["hand_id"], h["played_at"], h["table_id"], h["game"],
-                         fmt, sb, bb, h["n_players"], h["board"], h["pot"],
-                         h["hero_seat"], h["standard"], h["source"]))
+            # Columns are named, not positional. They were positional until
+            # a second site arrived and added `site`, `rake`, `max_seats` and
+            # `jp_fee` to `hands` and `allin` to `actions` -- at which point
+            # this loader stopped being able to insert anything at all, and
+            # stayed that way silently because nobody loads a new session
+            # every day. Naming them means the next column added here costs
+            # nothing rather than breaking the other site's importer.
+            con.execute(
+                "INSERT INTO hands (hand_id, played_at, table_id, game, fmt,"
+                " sb, bb, n_players, board, pot, hero_seat, standard, source,"
+                " site) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (h["hand_id"], h["played_at"], h["table_id"], h["game"],
+                 fmt, sb, bb, h["n_players"], h["board"], h["pot"],
+                 h["hero_seat"], h["standard"], h["source"], "ignition"))
             con.executemany(
-                "INSERT OR REPLACE INTO seats VALUES (?,?,?,?,?,?,?,?,?,?)",
+                "INSERT OR REPLACE INTO seats (hand_id, seat, label, position,"
+                " stack, cards, is_hero, won, posted, invested)"
+                " VALUES (?,?,?,?,?,?,?,?,?,?)",
                 [(h["hand_id"], s["seat"], s["label"], s["position"],
                   s["stack"], s["cards"], int(s["is_hero"]), s["won"],
                   s["posted"], s["invested"])
                  for s in got["seats"]])
             con.executemany(
-                "INSERT INTO actions VALUES (?,?,?,?,?,?,?,?)",
+                "INSERT INTO actions (hand_id, street, n, position, seat,"
+                " action, amount, total) VALUES (?,?,?,?,?,?,?,?)",
                 [(h["hand_id"], a["street"], a["n"], a["position"], a["seat"],
                   a["action"], a["amount"], a["total"])
                  for a in got["actions"]])

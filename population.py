@@ -34,7 +34,7 @@ DB = Path(__file__).parent / "hands.db"
 #
 # Ignition only, and that is not a default -- it is the premise. Everything
 # below counts the combos the pool folded, which can only be done on a site
-# that shows folded hands. CoinPoker shows 23% of them. Loading it made
+# that shows folded hands. ACR shows 23% of them. Loading it made
 # `fmt='RING'` match both sites, and this filter silently went from a pool
 # with 100% of its hole cards to one with 33%, which would have quietly
 # rewritten every revealed range in this module.
