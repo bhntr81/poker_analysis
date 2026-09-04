@@ -234,36 +234,46 @@ def rate(con, stat, where="1=1", params=()):
     return n, k, p, lo, hi
 
 
-def rates_by_player(con, stat, where="1=1", params=()):
+def rates_by(con, stat, group, where="1=1", params=(), skip_null=True):
     """
-    Every player's (n, k) for one stat, in a single pass over the table.
+    One stat, split by any expression, in a single pass over the table.
 
-    Asking `rate` once per player is the obvious way to build a report over
-    a pool, and it is why the first opponent leaderboard took eleven minutes:
-    48 players times 35 stats is 1,680 full scans of 93,600 rows to answer a
-    question SQL will answer 35 times with a GROUP BY. A report nobody waits
-    for is a report nobody reads, so the grouping happens in the database.
+    Asking `rate` once per group is the obvious way to build a report, and it
+    is why the first opponent leaderboard took eleven minutes: 48 players
+    times 35 stats is 1,680 full scans of 93,600 rows to answer a question
+    SQL will answer 35 times with a GROUP BY. A report nobody waits for is a
+    report nobody reads, so the grouping happens in the database.
+
+    `group` is any SQL expression over the same table -- a column name for a
+    position or stake report, `substr(played_at,1,7)` for a monthly one.
     """
     if isinstance(stat, str):
         stat = BY_KEY[stat]
     table = "decisions" if stat.source == "d" else "spots"
+    guard = f" AND ({group}) IS NOT NULL" if skip_null else ""
     if stat.source == "s":
-        sql = (f"SELECT player, SUM({stat.chance}), "
+        sql = (f"SELECT {group}, SUM({stat.chance}), "
                f"SUM({stat.chance} AND {stat.action}) FROM spots "
-               f"WHERE ({where}) AND player IS NOT NULL GROUP BY player")
+               f"WHERE ({where}){guard} GROUP BY 1")
     elif stat.per == "hand":
-        sql = (f"SELECT player, COUNT(*), SUM(did) FROM ("
-               f"  SELECT player, hand_id, seat,"
+        # A per-hand stat counts a player once however often they acted, so
+        # it has to collapse to one row per (hand, seat) before grouping.
+        sql = (f"SELECT g, COUNT(*), SUM(did) FROM ("
+               f"  SELECT ({group}) g, hand_id, seat,"
                f"  MAX(CASE WHEN {stat.action} THEN 1 ELSE 0 END) did"
-               f"  FROM {table} WHERE ({stat.chance}) AND ({where})"
-               f"  AND player IS NOT NULL GROUP BY hand_id, seat)"
-               f" GROUP BY player")
+               f"  FROM {table} WHERE ({stat.chance}) AND ({where}){guard}"
+               f"  GROUP BY hand_id, seat) GROUP BY g")
     else:
-        sql = (f"SELECT player, COUNT(*), "
+        sql = (f"SELECT {group}, COUNT(*), "
                f"SUM(CASE WHEN {stat.action} THEN 1 ELSE 0 END) "
-               f"FROM {table} WHERE ({stat.chance}) AND ({where}) "
-               f"AND player IS NOT NULL GROUP BY player")
-    return {p: (n or 0, k or 0) for p, n, k in con.execute(sql, params)}
+               f"FROM {table} WHERE ({stat.chance}) AND ({where}){guard} "
+               f"GROUP BY 1")
+    return {g: (n or 0, k or 0) for g, n, k in con.execute(sql, params)}
+
+
+def rates_by_player(con, stat, where="1=1", params=()):
+    """Every player's (n, k) for one stat -- `rates_by` on the player column."""
+    return rates_by(con, stat, "player", where, params)
 
 
 def compare(con, stat, where_a, where_b, params_a=(), params_b=()):

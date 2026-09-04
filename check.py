@@ -30,6 +30,7 @@ CHECKS = [
     ("decisions", "the per-decision derivation, against spots exactly"),
     ("stats", "the stat engine, against spots where they overlap"),
     ("profile", "opponent profiles: deviations really clear their intervals"),
+    ("equity", "the hand evaluator, against published equities"),
     ("query", "the filter surface: every filter runs, and every one narrows"),
     ("population", "pool findings survive being split in half"),
 ]

@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 hands.db
+
+# generated reports
+graph*.html
