@@ -78,6 +78,7 @@ VALUE_FLAGS = {
     "--since": "played_at >= {v}",
     "--until": "played_at <= {v}",
     "--board": None,        # handled separately: named textures
+    "--quick": None,        # one or more named filters from `quick_filters`
     "--where": None,        # raw SQL escape hatch
 }
 
@@ -154,6 +155,46 @@ BOARDS = {
 }
 
 
+# A statistic and a hand filter are the same object seen twice. A `Stat` is
+# a chance and an action -- "the times a continuation bet was possible" and
+# "the times one was made" -- so the filter "hands where a continuation bet
+# was made" is simply both of them at once. Every stat in the registry is
+# therefore a one-click filter already, named the way a player names it, and
+# a new stat brings a new filter with it for nothing.
+#
+# The negatives are worth naming separately because "did not" is a different
+# question from "did", and a player asking about missed continuation bets is
+# not asking about continuation bets.
+NEGATIVES = {
+    "cbet_flop": "Missed Continuation Bet Flop",
+    "cbet_turn": "Missed 2nd Barrel Turn",
+    "threebet": "Did Not 3-Bet",
+    "steal": "Did Not Steal",
+    "fold_to_cbet": "Continued vs Continuation Bet",
+    "fold_to_3bet": "Continued vs 3-Bet",
+}
+
+
+def quick_filters():
+    """Named one-click filters, in the order they should be shown."""
+    out = []
+    for st in STATS:
+        if st.source != "d":
+            continue
+        out.append({"group": st.group, "label": st.label, "key": st.key,
+                    "sql": f"({st.chance}) AND ({st.action})",
+                    "note": st.note})
+        if st.key in NEGATIVES:
+            out.append({"group": st.group, "label": NEGATIVES[st.key],
+                        "key": st.key + "_not",
+                        "sql": f"({st.chance}) AND NOT ({st.action})",
+                        "note": f"had the chance and did not"})
+    return out
+
+
+QUICK_BY_KEY = {q["key"]: q for q in quick_filters()}
+
+
 def q(value):
     """A value as a SQL literal, with quotes doubled so a name cannot break out."""
     return "'" + str(value).replace("'", "''") + "'"
@@ -187,6 +228,13 @@ def build(argv):
             if a == "--where":
                 parts.append("(" + v + ")")
                 described.append(v)
+                continue
+            if a == "--quick":
+                for name in v.split(","):
+                    if name not in QUICK_BY_KEY:
+                        raise SystemExit(f"unknown quick filter {name!r}")
+                    parts.append("(" + QUICK_BY_KEY[name]["sql"] + ")")
+                    described.append(QUICK_BY_KEY[name]["label"])
                 continue
             if a == "--board":
                 for name in v.split(","):
@@ -865,6 +913,8 @@ def usage():
         if v:
             print(f"    {k:14} {v}")
     print(f"    {'--board':14} one of: {', '.join(BOARDS)}")
+    print(f"    {'--quick':14} named filters: "
+          f"{', '.join(sorted(QUICK_BY_KEY)[:6])}, ... (see --quick-list)")
     print(f"    {'--where':14} raw SQL over `decisions`, for anything above")
     print("\n  reports (not filters):")
     print(f"    {'--by':14} split into a table by one of: "
@@ -916,6 +966,8 @@ def check(db_path=DB):
     cases += [(k, [k, v]) for k, v in samples.items()]
     cases += [("--board " + b, ["--board", b]) for b in BOARDS]
     cases.append(("--where", ["--where", "eff_bb > 100"]))
+    cases += [("--quick " + f["key"], ["--quick", f["key"]])
+              for f in quick_filters()]
     cases.append(("--player", ["--player", con.execute(
         "SELECT player FROM decisions WHERE player IS NOT NULL LIMIT 1"
     ).fetchone()[0]]))
@@ -984,6 +1036,14 @@ def check(db_path=DB):
 def main(argv):
     if not argv or "--help" in argv or "-h" in argv:
         usage()
+        return 0
+    if "--quick-list" in argv:
+        group = None
+        for f in quick_filters():
+            if f["group"] != group:
+                group = f["group"]
+                print(f"\n[{group}]")
+            print(f"  {f['key']:22} {f['label']}")
         return 0
     if "--check" in argv:
         return 0 if check() else 1

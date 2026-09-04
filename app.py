@@ -99,6 +99,11 @@ def dark(root):
     style.configure("TButton", background=PANEL, foreground=INK,
                     bordercolor=EDGE, focusthickness=0, padding=(10, 4))
     style.map("TButton", background=[("active", EDGE)])
+    style.configure("Accent.TButton", background=ACCENT, foreground="#08111f",
+                    bordercolor=ACCENT, padding=(14, 5))
+    style.map("Accent.TButton", background=[("active", "#5ea6ff")])
+    style.configure("Big.TNotebook.Tab", padding=(20, 9),
+                    font=("Segoe UI", 10))
     style.configure("TEntry", fieldbackground=PANEL, foreground=INK,
                     bordercolor=EDGE, insertcolor=INK)
     style.configure("TCombobox", fieldbackground=PANEL, background=PANEL,
@@ -296,9 +301,20 @@ class App(ImportMixin, ttk.Frame):
         super().__init__(master)
         self.pack(fill="both", expand=True)
         self.con = sqlite3.connect(DB, check_same_thread=False)
-        self.flags = {}
+        # Every switch the command line has, whether or not a control for
+        # it has been built yet. These used to appear as a side effect of
+        # drawing the rail, so deleting the rail silently emptied the filter.
+        self.flags = {f: tk.BooleanVar() for f in query.SWITCHES}
         self.multi = {"pos": set(), "vs": set(), "street": set(),
-                      "pot": set(), "board": set()}
+                      "pot": set(), "board": set(), "quick": set()}
+        # The filter's values live here rather than on the widgets, because
+        # the widgets belong to a dialog that is destroyed every time it is
+        # closed and the filter is not.
+        self.vals = {n: tk.StringVar() for n in
+                     ("site", "stake", "player", "deep", "short",
+                      "since", "until", "where")}
+        self.options = {"sites": [], "stakes": [], "players": []}
+
         self.results = queue.Queue()
         self.pending = 0
         self._build()
@@ -308,118 +324,43 @@ class App(ImportMixin, ttk.Frame):
     # ---- layout -------------------------------------------------------
     def _build(self):
         head = ttk.Frame(self)
-        head.pack(fill="x", padx=14, pady=(10, 6))
-        ttk.Label(head, text="poker_analysis", style="Title.TLabel").pack(side="left")
+        head.pack(fill="x", padx=18, pady=(12, 8))
+        ttk.Label(head, text="poker_analysis",
+                  style="Title.TLabel").pack(side="left")
         self.sub = ttk.Label(head, text="", style="Dim.TLabel")
-        self.sub.pack(side="left", padx=10)
+        self.sub.pack(side="left", padx=12)
         self.status = ttk.Label(head, text="", style="Dim.TLabel")
         self.status.pack(side="right")
+
+        # The filter lives behind a button rather than down the side. A rail
+        # wide enough for every filter this database supports is a rail that
+        # leaves no room for the answer, and the filter is looked at far less
+        # often than the thing it produces.
+        bar = ttk.Frame(self)
+        bar.pack(fill="x", padx=18, pady=(0, 8))
+        ttk.Button(bar, text="＋  Filter", style="Accent.TButton",
+                   command=self.open_filters).pack(side="left")
+        self.clear_btn = ttk.Button(bar, text="clear", command=self.clear_filters)
+        self.summary = ttk.Label(bar, text="all hands", style="Dim.TLabel")
+        self.summary.pack(side="left", padx=12)
         ttk.Separator(self).pack(fill="x")
 
-        body = ttk.Frame(self)
-        body.pack(fill="both", expand=True)
-        rail = ttk.Frame(body, width=250)
-        rail.pack(side="left", fill="y")
-        rail.pack_propagate(False)
-        ttk.Separator(body, orient="vertical").pack(side="left", fill="y")
-        right = ttk.Frame(body)
-        right.pack(side="left", fill="both", expand=True)
-
-        self._rail(rail)
+        right = ttk.Frame(self)
+        right.pack(fill="both", expand=True)
         self._views(right)
 
-    def _section(self, parent, title):
-        ttk.Label(parent, text=title.upper(), style="Head.TLabel").pack(
-            anchor="w", padx=12, pady=(12, 3))
-        f = ttk.Frame(parent)
-        f.pack(fill="x", padx=12)
-        return f
+    def open_filters(self):
+        FilterDialog(self)
 
-    def _toggles(self, parent, items, per_row=2):
-        row = None
-        for i, (flag, label) in enumerate(items):
-            if i % per_row == 0:
-                row = ttk.Frame(parent)
-                row.pack(fill="x")
-            var = tk.BooleanVar()
-            self.flags[flag] = var
-            ttk.Checkbutton(row, text=label, variable=var,
-                            command=lambda f=flag: self._toggled(f)).pack(
-                side="left", padx=(0, 8))
+    def clear_filters(self):
+        for v in self.flags.values():
+            v.set(False)
+        for g in self.multi:
+            self.multi[g] = set()
+        for v in self.vals.values():
+            v.set("")
+        self.refresh()
 
-    def _chips(self, parent, group, values, per_row=4):
-        row = None
-        for i, v in enumerate(values):
-            if i % per_row == 0:
-                row = ttk.Frame(parent)
-                row.pack(fill="x")
-            var = tk.BooleanVar()
-            ttk.Checkbutton(
-                row, text=v, variable=var,
-                command=lambda g=group, val=v, x=var: self._chip(g, val, x)
-            ).pack(side="left", padx=(0, 6))
-
-    def _rail(self, rail):
-        canvas = tk.Canvas(rail, bg=BG, highlightthickness=0, width=246)
-        bar = ttk.Scrollbar(rail, orient="vertical", command=canvas.yview)
-        inner = ttk.Frame(canvas)
-        inner.bind("<Configure>", lambda e: canvas.configure(
-            scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=inner, anchor="nw", width=232)
-        canvas.configure(yscrollcommand=bar.set)
-        canvas.pack(side="left", fill="both", expand=True)
-        bar.pack(side="right", fill="y")
-
-        f = self._section(inner, "who")
-        self._toggles(f, [("--hero", "hero"), ("--pool", "pool")])
-
-        f = self._section(inner, "site & stake")
-        self.site = self._combo(f, ["any site"])
-        self.stake = self._combo(f, ["any stake"])
-        self.player = self._combo(f, ["any player"])
-
-        f = self._section(inner, "my position")
-        self._chips(f, "pos", POSITIONS)
-
-        f = self._section(inner, "against  (heads-up pots only)")
-        self._chips(f, "vs", POSITIONS)
-        self._toggles(f, VS_SIDE)
-        f = self._section(inner, "street")
-        self._chips(f, "street", STREETS)
-        f = self._section(inner, "pot type")
-        self._chips(f, "pot", POT_TYPES, per_row=3)
-        f = self._section(inner, "situation")
-        self._toggles(f, SITUATIONS)
-        f = self._section(inner, "flop texture")
-        self._chips(f, "board", list(query.BOARDS), per_row=3)
-
-        f = self._section(inner, "stack depth (bb)")
-        self.deep = self._entry(f, "at least")
-        self.short = self._entry(f, "less than")
-        f = self._section(inner, "dates  (yyyy-mm-dd)")
-        self.since = self._entry(f, "from")
-        self.until = self._entry(f, "to")
-        f = self._section(inner, "raw sql over decisions")
-        self.where = self._entry(f, "", width=26)
-        ttk.Frame(inner, height=16).pack()
-
-    def _combo(self, parent, values):
-        c = ttk.Combobox(parent, values=values, state="readonly")
-        c.current(0)
-        c.pack(fill="x", pady=2)
-        c.bind("<<ComboboxSelected>>", lambda e: self.refresh())
-        return c
-
-    def _entry(self, parent, label, width=10):
-        row = ttk.Frame(parent)
-        row.pack(fill="x", pady=1)
-        if label:
-            ttk.Label(row, text=label, style="Dim.TLabel", width=9).pack(side="left")
-        e = ttk.Entry(row, width=width)
-        e.pack(side="left", fill="x", expand=True)
-        e.bind("<Return>", lambda ev: self.refresh())
-        e.bind("<FocusOut>", lambda ev: self.refresh())
-        return e
 
     def _views(self, right):
         bar = ttk.Frame(right)
@@ -481,27 +422,22 @@ class App(ImportMixin, ttk.Frame):
 
     def argv(self):
         """The window's state as the argument list `query.build` understands."""
-        argv = [f for f, v in self.flags.items() if v.get()]
+        argv = [fl for fl, v in self.flags.items() if v.get()]
         for group, flag in (("pos", "--pos"), ("vs", "--vs"),
                             ("street", "--street"), ("pot", "--pot"),
-                            ("board", "--board")):
-            if self.multi[group]:
+                            ("board", "--board"), ("quick", "--quick")):
+            if self.multi.get(group):
                 argv += [flag, ",".join(sorted(self.multi[group]))]
-        for widget, flag, blank in ((self.site, "--site", "any site"),
-                                    (self.stake, "--stake", "any stake"),
-                                    (self.player, "--player", "any player")):
-            v = widget.get()
-            if v and v != blank:
-                argv += [flag, v]
-        for widget, flag in ((self.deep, "--deep"), (self.short, "--short"),
-                             (self.since, "--since"), (self.until, "--until"),
-                             (self.where, "--where")):
-            v = widget.get().strip()
-            if v:
+        for name, flag in (("site", "--site"), ("stake", "--stake"),
+                           ("player", "--player"), ("deep", "--deep"),
+                           ("short", "--short"), ("since", "--since"),
+                           ("until", "--until"), ("where", "--where")):
+            v = self.vals[name].get().strip()
+            if v and not v.startswith("any "):
                 argv += [flag, v]
         return argv
 
-    # ---- running the query, off the interface thread -------------------
+
     def refresh(self):
         view = self.nb.tab(self.nb.select(), "text") if self.tabs else "stats"
         if view in ("report", "results"):
@@ -517,6 +453,11 @@ class App(ImportMixin, ttk.Frame):
             self.filter_line.configure(text=str(e))
             return
         self.filter_line.configure(text="filter: " + label)
+        self.summary.configure(text=self.describe_filter())
+        if self.argv():
+            self.clear_btn.pack(side="left", padx=(6, 0))
+        else:
+            self.clear_btn.pack_forget()
         self.pending += 1
         token = self.pending
         self.status.configure(text="working…")
@@ -765,18 +706,290 @@ class App(ImportMixin, ttk.Frame):
 
     # ---- what this database holds -------------------------------------
     def load_options(self):
+        """What this database holds, for the dialog to offer."""
         one = lambda sql: [r[0] for r in self.con.execute(sql)
                            if r[0] is not None]
-        sites = one("SELECT DISTINCT site FROM decisions ORDER BY 1")
-        self.site.configure(values=["any site"] + sites)
-        self.stake.configure(values=["any stake"] + [
-            f"{v:g}" for v in one("SELECT DISTINCT bb FROM decisions ORDER BY 1")])
-        self.player.configure(values=["any player"] + one(
+        self.options["sites"] = one(
+            "SELECT DISTINCT site FROM decisions ORDER BY 1")
+        self.options["stakes"] = [f"{v:g}" for v in one(
+            "SELECT DISTINCT bb FROM decisions ORDER BY 1")]
+        self.options["players"] = one(
             "SELECT player FROM decisions WHERE player IS NOT NULL "
             "GROUP BY player HAVING COUNT(DISTINCT hand_id) >= 100 "
-            "ORDER BY COUNT(DISTINCT hand_id) DESC LIMIT 200"))
+            "ORDER BY COUNT(DISTINCT hand_id) DESC LIMIT 300")
         hands = self.con.execute("SELECT COUNT(*) FROM hands").fetchone()[0]
-        self.sub.configure(text=f"{' · '.join(sites)}   {hands:,} hands")
+        self.sub.configure(
+            text=f"{' · '.join(self.options['sites'])}   {hands:,} hands")
+
+    def describe_filter(self):
+        """The active filter as a sentence, for the bar above the answer."""
+        try:
+            _w, label, _p = query.build(self.argv())
+        except SystemExit:
+            return "…"
+        return "all hands" if label == "everything" else label
+
+
+class FilterDialog(tk.Toplevel):
+    """
+    Every filter, laid out to be read rather than squeezed down one side.
+
+    The rail this replaces could hold about a third of what the database can
+    be asked, and it did it in a column narrow enough that each control was a
+    guess at its own label. A filter is consulted far less often than the
+    answer it produces, so it belongs behind a button and is worth giving the
+    whole window when it is open.
+
+    Nothing here defines a filter. Every control sets one of the variables
+    the application already holds, and `query.build` turns those into a WHERE
+    clause exactly as it does for the command line -- which is what stops the
+    window and the terminal from drifting into meaning different things.
+    """
+
+    COLUMNS = 3
+
+    def __init__(self, app):
+        super().__init__(app.master)
+        self.app = app
+        self.title("Filter")
+        self.configure(background=BG)
+        self.geometry("1080x720")
+        self.transient(app.master)
+        self.grab_set()
+
+        # Edit a copy. Cancel then means what it says, rather than leaving
+        # behind whatever was clicked before somebody changed their mind.
+        self.was = ({f: v.get() for f, v in app.flags.items()},
+                    {g: set(v) for g, v in app.multi.items()},
+                    {n: v.get() for n, v in app.vals.items()})
+
+        nb = ttk.Notebook(self, style="Big.TNotebook")
+        nb.pack(fill="both", expand=True, padx=16, pady=(14, 0))
+        self._quick_tab(nb)
+        self._positions_tab(nb)
+        self._actions_tab(nb)
+        self._general_tab(nb)
+
+        foot = ttk.Frame(self)
+        foot.pack(fill="x", padx=20, pady=14)
+        ttk.Label(foot, text="every filter here is also a command-line flag",
+                  style="Dim.TLabel").pack(side="left")
+        ttk.Button(foot, text="APPLY", style="Accent.TButton",
+                   command=self.apply).pack(side="right", padx=(8, 0))
+        ttk.Button(foot, text="RESET", command=self.reset).pack(side="right",
+                                                                padx=8)
+        ttk.Button(foot, text="CANCEL", command=self.cancel).pack(side="right")
+        self.bind("<Escape>", lambda e: self.cancel())
+        self.bind("<Return>", lambda e: self.apply())
+
+    # ---- the pieces a tab is made of ----------------------------------
+    def _page(self, nb, title):
+        outer = ttk.Frame(nb)
+        nb.add(outer, text=title)
+        canvas = tk.Canvas(outer, bg=BG, highlightthickness=0)
+        bar = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        inner = ttk.Frame(canvas)
+        inner.bind("<Configure>",
+                   lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        win = canvas.create_window((0, 0), window=inner, anchor="nw")
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfigure(win, width=e.width))
+        canvas.configure(yscrollcommand=bar.set)
+        canvas.pack(side="left", fill="both", expand=True)
+        bar.pack(side="right", fill="y")
+        canvas.bind_all("<MouseWheel>",
+                        lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
+        return inner
+
+    def _heading(self, parent, text):
+        ttk.Label(parent, text=text.upper(), style="Head.TLabel").pack(
+            anchor="w", padx=18, pady=(18, 6))
+
+    def _pick(self, parent, label, on, off, is_on, note=""):
+        """
+        One clickable choice, drawn as text rather than as a checkbox.
+
+        Tk's checkbutton indicator cannot be made to look like anything but a
+        Tk checkbutton, and a page of them reads as a form. What is wanted
+        here is a list of things you can pick, so the label itself is the
+        control and being chosen is shown by its colour.
+        """
+        lab = tk.Label(parent, text=label, bg=BG, anchor="w", padx=10, pady=5,
+                       font=("Segoe UI", 10), cursor="hand2")
+        if note:
+            self._tip(lab, note)
+
+        def paint():
+            lab.configure(fg=WARN if is_on() else INK,
+                          font=("Segoe UI", 10, "bold" if is_on() else "normal"))
+
+        def click(_e):
+            (off if is_on() else on)()
+            paint()
+        lab.bind("<Button-1>", click)
+        lab.bind("<Enter>", lambda e: lab.configure(bg=PANEL))
+        lab.bind("<Leave>", lambda e: lab.configure(bg=BG))
+        paint()
+        lab.pack(fill="x", anchor="w")
+        return lab
+
+    def _tip(self, widget, text):
+        """A note on hover, since a filter's name rarely says its definition."""
+        tip = {"win": None}
+
+        def show(_e):
+            if tip["win"]:
+                return
+            w = tk.Toplevel(widget)
+            w.wm_overrideredirect(True)
+            w.configure(background=EDGE)
+            tk.Label(w, text=text, bg=EDGE, fg=INK, font=("Segoe UI", 9),
+                     padx=8, pady=4, wraplength=380, justify="left").pack()
+            w.wm_geometry(f"+{widget.winfo_rootx() + 20}"
+                          f"+{widget.winfo_rooty() + 26}")
+            tip["win"] = w
+
+        def hide(_e):
+            if tip["win"]:
+                tip["win"].destroy()
+                tip["win"] = None
+        widget.bind("<Enter>", show, add="+")
+        widget.bind("<Leave>", hide, add="+")
+
+    def _grid(self, parent, items):
+        """Items in columns, filled down then across, as the screenshot does."""
+        holder = ttk.Frame(parent)
+        holder.pack(fill="x", padx=8)
+        cols = [ttk.Frame(holder) for _ in range(self.COLUMNS)]
+        for c in cols:
+            c.pack(side="left", fill="both", expand=True, anchor="n")
+        per = (len(items) + self.COLUMNS - 1) // self.COLUMNS or 1
+        for i, make in enumerate(items):
+            make(cols[min(i // per, self.COLUMNS - 1)])
+
+    def _set_item(self, group, value):
+        m = self.app.multi[group]
+        return (lambda: m.add(value), lambda: m.discard(value),
+                lambda: value in m)
+
+    def _flag_item(self, flag):
+        v = self.app.flags[flag]
+
+        def on():
+            v.set(True)
+            twin = OPPOSITES.get(flag)
+            if twin:
+                self.app.flags[twin].set(False)
+        return on, (lambda: v.set(False)), (lambda: bool(v.get()))
+
+    # ---- the tabs ------------------------------------------------------
+    def _quick_tab(self, nb):
+        page = self._page(nb, "Quick Filters")
+        by_group = {}
+        for f in query.quick_filters():
+            by_group.setdefault(f["group"], []).append(f)
+        for group, items in by_group.items():
+            self._heading(page, group)
+            self._grid(page, [
+                (lambda parent, f=f: self._pick(
+                    parent, f["label"], *self._set_item("quick", f["key"]),
+                    note=f.get("note") or ""))
+                for f in items])
+
+    def _positions_tab(self, nb):
+        page = self._page(nb, "Positions")
+        self._heading(page, "my position")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("pos", v))) for v in POSITIONS])
+        self._heading(page, "against  (heads-up pots only)")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("vs", v))) for v in POSITIONS])
+        self._heading(page, "and that opponent is")
+        self._grid(page, [(lambda parent, f=f, t=t: self._pick(
+            parent, t, *self._flag_item(f))) for f, t in VS_SIDE])
+        self._heading(page, "who is being measured")
+        self._grid(page, [(lambda parent, f=f, t=t: self._pick(
+            parent, t, *self._flag_item(f)))
+            for f, t in (("--hero", "me"), ("--pool", "the pool"))])
+
+    def _actions_tab(self, nb):
+        page = self._page(nb, "Actions")
+        self._heading(page, "street")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("street", v))) for v in STREETS])
+        self._heading(page, "pot type")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("pot", v))) for v in POT_TYPES])
+        self._heading(page, "situation")
+        self._grid(page, [(lambda parent, f=f, t=t: self._pick(
+            parent, t, *self._flag_item(f))) for f, t in SITUATIONS])
+        self._heading(page, "flop texture")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("board", v)))
+            for v in query.BOARDS])
+
+    def _general_tab(self, nb):
+        page = self._page(nb, "General")
+        self._heading(page, "site, stake, player")
+        row = ttk.Frame(page)
+        row.pack(fill="x", padx=18)
+        for name, blank, values in (
+                ("site", "any site", self.app.options["sites"]),
+                ("stake", "any stake", self.app.options["stakes"]),
+                ("player", "any player", self.app.options["players"])):
+            box = ttk.Combobox(row, textvariable=self.app.vals[name],
+                               values=[blank] + list(values), width=22)
+            if not self.app.vals[name].get():
+                self.app.vals[name].set(blank)
+            box.pack(side="left", padx=(0, 14))
+
+        self._heading(page, "stack depth, in big blinds")
+        row = ttk.Frame(page)
+        row.pack(fill="x", padx=18)
+        for name, text in (("deep", "at least"), ("short", "less than")):
+            ttk.Label(row, text=text, style="Dim.TLabel").pack(side="left")
+            ttk.Entry(row, textvariable=self.app.vals[name], width=8).pack(
+                side="left", padx=(6, 18))
+
+        self._heading(page, "dates   (yyyy-mm-dd)")
+        row = ttk.Frame(page)
+        row.pack(fill="x", padx=18)
+        for name, text in (("since", "from"), ("until", "to")):
+            ttk.Label(row, text=text, style="Dim.TLabel").pack(side="left")
+            ttk.Entry(row, textvariable=self.app.vals[name], width=14).pack(
+                side="left", padx=(6, 18))
+
+        self._heading(page, "anything else, as SQL over `decisions`")
+        ttk.Entry(page, textvariable=self.app.vals["where"]).pack(
+            fill="x", padx=18, pady=(0, 6))
+        ttk.Label(page, style="Dim.TLabel", wraplength=900, justify="left",
+                  text="For what the named filters cannot say. The columns "
+                       "are the ones `decisions` has: pot_frac, eff_bb, spr, "
+                       "n_live, fl_hi, size_bb, to_call_bb and the rest."
+                  ).pack(anchor="w", padx=18)
+
+    # ---- the three buttons ---------------------------------------------
+    def apply(self):
+        self.grab_release()
+        self.destroy()
+        self.app.refresh()
+
+    def cancel(self):
+        flags, multi, vals = self.was
+        for f, v in flags.items():
+            self.app.flags[f].set(v)
+        for g, v in multi.items():
+            self.app.multi[g] = set(v)
+        for n, v in vals.items():
+            self.app.vals[n].set(v)
+        self.grab_release()
+        self.destroy()
+
+    def reset(self):
+        self.app.clear_filters()
+        self.grab_release()
+        self.destroy()
+        FilterDialog(self.app)
 
 
 class HandWindow(tk.Toplevel):
@@ -870,12 +1083,16 @@ def check(db_path=DB):
          ["--board", "mono,paired"]),
         ({"flags": [], "pos": [], "vs": [], "street": [], "pot": [],
           "board": []}, []),
+        # A quick filter is a named stat used as a filter, and it has to
+        # reach uild by the same road every other control does.
+        ({"flags": ["--hero"], "quick": ["cbet_flop"], "pot": ["raised"]},
+         ["--hero", "--quick", "cbet_flop", "--pot", "raised"]),
     ]
     for state, argv in cases:
         for f, var in app.flags.items():
             var.set(f in state["flags"])
         for g in app.multi:
-            app.multi[g] = set(state[g])
+            app.multi[g] = set(state.get(g, []))
         a, _la, _pa = query.build(app.argv())
         b, _lb, _pb = query.build(argv)
         if sorted(a.split(" AND ")) != sorted(b.split(" AND ")):
@@ -903,6 +1120,31 @@ def check(db_path=DB):
 
     # The dark theme is only dark if `clam` is the theme in use; the others
     # hand their drawing to Windows and ignore every colour set here.
+    # The dialog must offer what the command line can express. A filter that
+    # exists only as a flag is a filter nobody will find, and the window
+    # quietly falling behind the engine is how that comes about.
+    missing = [f for f in query.SWITCHES if f not in app.flags]
+    dialog = FilterDialog(app)
+    dialog.withdraw()
+    dialog.update_idletasks()
+
+    def clickable(w, out):
+        for kid in w.winfo_children():
+            if isinstance(kid, tk.Label) and kid.cget("cursor") == "hand2":
+                out.append(kid.cget("text"))
+            clickable(kid, out)
+        return out
+
+    offered = clickable(dialog, [])
+    print(f"switches the window can set   "
+          f"{len(query.SWITCHES) - len(missing)}/{len(query.SWITCHES)}")
+    print(f"filters offered in the dialog {len(offered)}")
+    if missing:
+        fails.append(f"the window cannot set {missing}")
+    if len(offered) < len(query.quick_filters()):
+        fails.append("the dialog offers fewer filters than are defined")
+    dialog.destroy()
+
     theme = ttk.Style(root).theme_use()
     print(f"theme in use                   {theme}")
     if theme != "clam":
