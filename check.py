@@ -28,6 +28,7 @@ CHECKS = [
     ("acr", "the ACR import: money, positions, blinds, identity"),
     ("spots", "the per-hand derivation: figures with a known shape"),
     ("decisions", "the per-decision derivation, against spots exactly"),
+    ("lines", "the betting written out, against the columns it must match"),
     ("stats", "the stat engine, against spots where they overlap"),
     ("opponents", "opponent profiles: deviations really clear their intervals"),
     ("importer", "the site detector, against hands already loaded"),

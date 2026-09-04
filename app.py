@@ -33,6 +33,7 @@ hands are from; every file is identified by reading it.
 
 import os
 import queue
+import subprocess
 import sys
 import threading
 import tkinter as tk
@@ -63,6 +64,13 @@ GOOD, BAD, WARN = "#22a35a", "#d1443c", "#b8892a"
 LINE = {"total": "#22a35a", "showdown": "#2f7fd6",
         "nonshowdown": "#d1443c", "allin_ev": "#e0b020"}
 
+# The fonts a machine actually has. "Segoe UI" and "Consolas" ship with
+# Windows and with nothing else; asking Tk for a font that is not installed
+# does not fail, it silently substitutes, and what it substitutes on Linux
+# is a bitmap face from the eighties. Chosen once, from what the system
+# reports, so the same window is legible on all three.
+UI, MONO = "Segoe UI", "Consolas"
+
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
 STREETS = ("preflop", "flop", "turn", "river")
 POT_TYPES = ("unopened", "limped", "raised", "3bet", "4bet")
@@ -81,8 +89,43 @@ OPPOSITES = {"--hero": "--pool", "--pool": "--hero", "--ip": "--oop",
              "--vs-hero": "--vs-pool", "--vs-pool": "--vs-hero"}
 
 
+def pick_fonts():
+    """
+    The best font on this machine, from the ones it says it has.
+
+    Needs a root window: Tk cannot be asked what fonts exist before it has
+    one. `TkDefaultFont` and `TkFixedFont` are the last resort and are the
+    only two names guaranteed to resolve to something on every platform.
+    """
+    global UI, MONO
+    have = set(tkfont.families())
+    UI = next((f for f in ("Segoe UI", "SF Pro Text", "Helvetica Neue",
+                           "Ubuntu", "Cantarell", "DejaVu Sans", "Arial")
+               if f in have), "TkDefaultFont")
+    MONO = next((f for f in ("Consolas", "SF Mono", "Menlo",
+                             "DejaVu Sans Mono", "Ubuntu Mono", "Courier New")
+                 if f in have), "TkFixedFont")
+    return UI, MONO
+
+
+def open_folder(path):
+    """
+    Show a folder in whatever file browser this machine has.
+
+    `os.startfile` exists only on Windows -- on a Mac or a Linux box the Help
+    menu would raise AttributeError, and in a windowed build that failure is
+    invisible, which is precisely the class of bug `diag` was written for.
+    """
+    if sys.platform == "win32":
+        os.startfile(path)                                  # noqa: S606
+    else:
+        opener = "open" if sys.platform == "darwin" else "xdg-open"
+        subprocess.run([opener, str(path)], check=False)
+
+
 def dark(root):
     """Make Tk dark, which it does not want to be."""
+    pick_fonts()
     style = ttk.Style(root)
     # `clam` draws its own widgets. `vista` and `winnative` delegate to the
     # operating system, which draws them light whatever it is told.
@@ -96,9 +139,9 @@ def dark(root):
     style.configure("TLabel", background=BG, foreground=INK)
     style.configure("Dim.TLabel", background=BG, foreground=DIM)
     style.configure("Head.TLabel", background=BG, foreground=DIM,
-                    font=("Segoe UI", 8, "bold"))
+                    font=(UI, 8, "bold"))
     style.configure("Title.TLabel", background=BG, foreground=INK,
-                    font=("Segoe UI", 11, "bold"))
+                    font=(UI, 11, "bold"))
     style.configure("TCheckbutton", background=BG, foreground=DIM)
     style.map("TCheckbutton",
               foreground=[("selected", ACCENT), ("active", INK)],
@@ -110,7 +153,7 @@ def dark(root):
                     bordercolor=ACCENT, padding=(14, 5))
     style.map("Accent.TButton", background=[("active", "#5ea6ff")])
     style.configure("Big.TNotebook.Tab", padding=(20, 9),
-                    font=("Segoe UI", 10))
+                    font=(UI, 10))
     style.configure("TEntry", fieldbackground=PANEL, foreground=INK,
                     bordercolor=EDGE, insertcolor=INK)
     style.configure("TCombobox", fieldbackground=PANEL, background=PANEL,
@@ -131,7 +174,7 @@ def dark(root):
     style.configure("Treeview", background=PANEL, fieldbackground=PANEL,
                     foreground=INK, bordercolor=EDGE, rowheight=22)
     style.configure("Treeview.Heading", background=BG, foreground=DIM,
-                    relief="flat", font=("Segoe UI", 8, "bold"))
+                    relief="flat", font=(UI, 8, "bold"))
     style.map("Treeview.Heading", background=[("active", EDGE)])
     style.map("Treeview", background=[("selected", "#233047")],
               foreground=[("selected", INK)])
@@ -160,7 +203,7 @@ class Progress(tk.Toplevel):
         self.geometry("560x300")
         self.transient(master)
         self.text = tk.Text(self, background=BG, foreground=INK, borderwidth=0,
-                            font=("Consolas", 10), padx=14, pady=12,
+                            font=(MONO, 10), padx=14, pady=12,
                             insertbackground=BG)
         self.text.pack(fill="both", expand=True)
         self.close = ttk.Button(self, text="close", command=self.destroy,
@@ -199,7 +242,7 @@ class ImportMixin:
                     activebackground=ACCENT, activeforeground=BG)
         h.add_command(label="Show the log…", command=self.show_log)
         h.add_command(label="Open the log folder",
-                      command=lambda: os.startfile(diag.LOG.parent))
+                      command=lambda: open_folder(diag.LOG.parent))
         bar.add_cascade(label="Help", menu=h)
         root.configure(menu=bar)
 
@@ -209,7 +252,7 @@ class ImportMixin:
         win.configure(background=BG)
         win.geometry("900x560")
         text = tk.Text(win, background=BG, foreground=INK, borderwidth=0,
-                       font=("Consolas", 9), padx=12, pady=10, wrap="none")
+                       font=(MONO, 9), padx=12, pady=10, wrap="none")
         bar = ttk.Scrollbar(win, orient="vertical", command=text.yview)
         text.configure(yscrollcommand=bar.set)
         text.pack(side="left", fill="both", expand=True)
@@ -340,7 +383,8 @@ class App(ImportMixin, ttk.Frame):
         # closed and the filter is not.
         self.vals = {n: tk.StringVar() for n in
                      ("site", "stake", "player", "deep", "short",
-                      "since", "until", "where")}
+                      "since", "until", "where",
+                      "line", "node", "pre", "flop", "turn", "river")}
         self.options = {"sites": [], "stakes": [], "players": []}
 
         self.results = queue.Queue()
@@ -459,7 +503,10 @@ class App(ImportMixin, ttk.Frame):
         for name, flag in (("site", "--site"), ("stake", "--stake"),
                            ("player", "--player"), ("deep", "--deep"),
                            ("short", "--short"), ("since", "--since"),
-                           ("until", "--until"), ("where", "--where")):
+                           ("until", "--until"), ("where", "--where"),
+                           ("line", "--line"), ("node", "--node"),
+                           ("pre", "--pre"), ("flop", "--flop"),
+                           ("turn", "--turn"), ("river", "--river")):
             v = self.vals[name].get().strip()
             if v and not v.startswith("any "):
                 argv += [flag, v]
@@ -707,7 +754,7 @@ class App(ImportMixin, ttk.Frame):
             return
         s = self.series
         if not s:
-            c.create_text(w / 2, h / 2, fill=DIM, font=("Segoe UI", 10),
+            c.create_text(w / 2, h / 2, fill=DIM, font=(UI, 10),
                           text=message or "not enough hands to draw a line")
             return
         L, R, T, B = 70, 210, 30, 40
@@ -723,7 +770,7 @@ class App(ImportMixin, ttk.Frame):
             v = lo + span * f / 4
             c.create_line(L, y(v), w - R, y(v), fill=EDGE)
             c.create_text(L - 8, y(v), text=f"{v:,.0f}", fill=DIM,
-                          anchor="e", font=("Segoe UI", 8))
+                          anchor="e", font=(UI, 8))
         c.create_line(L, y(0), w - R, y(0), fill=DIM, dash=(3, 3))
         for i, (key, colour) in enumerate(LINE.items()):
             pts = []
@@ -734,10 +781,10 @@ class App(ImportMixin, ttk.Frame):
             ly = T + 16 + i * 30
             c.create_line(w - R + 8, ly, w - R + 30, ly, fill=colour, width=3)
             c.create_text(w - R + 38, ly, anchor="w", fill=INK,
-                          font=("Segoe UI", 9),
+                          font=(UI, 9),
                           text=f"{key.replace('_', ' ')}  {s[key][-1]:+,.0f}")
         c.create_text((L + w - R) / 2, h - 14, fill=DIM,
-                      font=("Segoe UI", 8), text=s.get("_note", ""))
+                      font=(UI, 8), text=s.get("_note", ""))
 
     # ---- what this database holds -------------------------------------
     def load_options(self):
@@ -803,6 +850,7 @@ class FilterDialog(tk.Toplevel):
         self._quick_tab(nb)
         self._positions_tab(nb)
         self._actions_tab(nb)
+        self._lines_tab(nb)
         self._general_tab(nb)
 
         foot = ttk.Frame(self)
@@ -857,13 +905,13 @@ class FilterDialog(tk.Toplevel):
         control and being chosen is shown by its colour.
         """
         lab = tk.Label(parent, text=label, bg=BG, anchor="w", padx=10, pady=5,
-                       font=("Segoe UI", 10), cursor="hand2")
+                       font=(UI, 10), cursor="hand2")
         if note:
             self._tip(lab, note)
 
         def paint():
             lab.configure(fg=WARN if is_on() else INK,
-                          font=("Segoe UI", 10, "bold" if is_on() else "normal"))
+                          font=(UI, 10, "bold" if is_on() else "normal"))
 
         def click(_e):
             (off if is_on() else on)()
@@ -885,7 +933,7 @@ class FilterDialog(tk.Toplevel):
             w = tk.Toplevel(widget)
             w.wm_overrideredirect(True)
             w.configure(background=EDGE)
-            tk.Label(w, text=text, bg=EDGE, fg=INK, font=("Segoe UI", 9),
+            tk.Label(w, text=text, bg=EDGE, fg=INK, font=(UI, 9),
                      padx=8, pady=4, wraplength=380, justify="left").pack()
             w.wm_geometry(f"+{widget.winfo_rootx() + 20}"
                           f"+{widget.winfo_rooty() + 26}")
@@ -970,6 +1018,70 @@ class FilterDialog(tk.Toplevel):
             parent, v, *self._set_item("board", v)))
             for v in query.BOARDS])
 
+    def _lines_tab(self, nb):
+        """
+        The betting written out, which is the one thing checkboxes cannot say.
+
+        Everything on the other tabs describes a single decision. This
+        describes the shape of the hand -- "the flop went check, bet, call"
+        -- and no list of named filters covers it, because the number of
+        shapes a hand can have is the number of strings these letters spell.
+        """
+        page = self._page(nb, "Lines")
+        self._heading(page, "how the betting went")
+        ttk.Label(page, style="Dim.TLabel", wraplength=980, justify="left",
+                  text="F fold   X check   C call   B bet   R raise   "
+                       "A all-in        *  anything at all   ?  any one "
+                       "action\n\nAdd a size letter after a bet to say how "
+                       "big it was:   s  a third or less   m  half   "
+                       "l  two-thirds to three-quarters   p  pot   "
+                       "o  an overbet.\nSo XBC is a flop that went check, "
+                       "bet, call at any size, and XBmC is the same flop "
+                       "with a half-pot bet."
+                  ).pack(anchor="w", padx=18, pady=(0, 4))
+
+        for name, label, example in (
+                ("pre", "preflop", "*R*R*   somebody 3-bet"),
+                ("flop", "flop", "XBC   checked, bet, called"),
+                ("turn", "turn", "XX   checked through"),
+                ("river", "river", "*Bo*   somebody overbet")):
+            row = ttk.Frame(page)
+            row.pack(fill="x", padx=18, pady=3)
+            ttk.Label(row, text=label, style="Dim.TLabel", width=9).pack(
+                side="left")
+            ttk.Entry(row, textvariable=self.app.vals[name], width=26).pack(
+                side="left")
+            ttk.Label(row, text=example, style="Dim.TLabel").pack(
+                side="left", padx=14)
+
+        self._heading(page, "the whole hand, streets separated by /")
+        row = ttk.Frame(page)
+        row.pack(fill="x", padx=18, pady=3)
+        ttk.Label(row, text="line", style="Dim.TLabel", width=9).pack(
+            side="left")
+        ttk.Entry(row, textvariable=self.app.vals["line"], width=40).pack(
+            side="left")
+        ttk.Label(row, text="*R*R*/XBC/XX/*   3-bet pot, flop check-bet-call, "
+                            "turn through", style="Dim.TLabel").pack(
+            side="left", padx=14)
+
+        self._heading(page, "where the player was standing when they acted")
+        row = ttk.Frame(page)
+        row.pack(fill="x", padx=18, pady=3)
+        ttk.Label(row, text="node", style="Dim.TLabel", width=9).pack(
+            side="left")
+        ttk.Entry(row, textvariable=self.app.vals["node"], width=40).pack(
+            side="left")
+        ttk.Label(row, text="*/XB   it was checked to somebody, who bet, and "
+                            "now it is this player's turn",
+                  style="Dim.TLabel").pack(side="left", padx=14)
+        ttk.Label(page, style="Dim.TLabel", wraplength=980, justify="left",
+                  text="A node is the hand cut short at the moment this "
+                       "player had to act, so it never contains what they "
+                       "did next -- which is what makes it the right thing "
+                       "to measure a decision against."
+                  ).pack(anchor="w", padx=18, pady=(8, 0))
+
     def _general_tab(self, nb):
         page = self._page(nb, "General")
         self._heading(page, "site, stake, player")
@@ -1044,7 +1156,7 @@ class HandWindow(tk.Toplevel):
         self.title(f"hand {hand_id}")
         self.geometry("760x620")
         d = query.hand_detail(con, hand_id, seat)
-        mono = tkfont.Font(family="Consolas", size=10)
+        mono = tkfont.Font(family=MONO, size=10)
         text = tk.Text(self, background=BG, foreground=INK, borderwidth=0,
                        font=mono, padx=16, pady=12, wrap="none",
                        insertbackground=BG)
@@ -1130,12 +1242,21 @@ def check(db_path=DB):
         # reach uild by the same road every other control does.
         ({"flags": ["--hero"], "quick": ["cbet_flop"], "pot": ["raised"]},
          ["--hero", "--quick", "cbet_flop", "--pot", "raised"]),
+        # A typed line, which reaches the filter by a different road from
+        # every clickable one: it is a text box rather than a state a click
+        # sets, and a box that is read into the wrong flag looks like a box
+        # that does nothing.
+        ({"flags": ["--hero"], "vals": {"flop": "XBC", "turn": "XX"}},
+         ["--hero", "--flop", "XBC", "--turn", "XX"]),
+        ({"flags": [], "vals": {"node": "*/xbm"}}, ["--node", "*/xbm"]),
     ]
     for state, argv in cases:
         for f, var in app.flags.items():
             var.set(f in state["flags"])
         for g in app.multi:
             app.multi[g] = set(state.get(g, []))
+        for n, var in app.vals.items():
+            var.set(state.get("vals", {}).get(n, ""))
         a, _la, _pa = query.build(app.argv())
         b, _lb, _pb = query.build(argv)
         if sorted(a.split(" AND ")) != sorted(b.split(" AND ")):

@@ -40,6 +40,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import lines
 from stats import BY_KEY, STATS, fmt, rate, rates_by, wilson
 
 DB = Path(__file__).parent / "hands.db"
@@ -77,9 +78,31 @@ VALUE_FLAGS = {
     "--live": "n_live = {n}",
     "--since": "played_at >= {v}",
     "--until": "played_at <= {v}",
+    # The shape of the betting rather than one decision in it. Each takes a
+    # GLOB pattern over the strings `lines.py` derives, so `--flop "XB*"` is
+    # "checked to somebody, who bet, and then anything at all".
+    "--line": None, "--node": None,
+    "--pre": None, "--flop": None, "--turn": None, "--river": None,
     "--board": None,        # handled separately: named textures
     "--quick": None,        # one or more named filters from `quick_filters`
     "--where": None,        # raw SQL escape hatch
+}
+
+# Which columns each line flag can read: the actions alone, or the actions
+# with their bet sizes. A node is the line cut short at the moment somebody
+# had to act, so `--node` asks "who was standing here" and `--line` asks
+# "how did the whole hand go".
+#
+# Which of the two a pattern goes to is decided by the pattern itself. Size
+# buckets (s m l p o) and action verbs (F X C B R A) share no letter -- that
+# is the whole reason they were chosen from different halves of the
+# alphabet -- so "XBC" can only mean actions and "XBmC" can only mean
+# actions with a half-pot bet, and neither needs a second flag or a mode
+# switch to say which was meant.
+LINE_FLAGS = {
+    "--line": ("line", "sized"), "--node": ("node", "node_sz"),
+    "--pre": ("pre", "pre_sz"), "--flop": ("flop", "flop_sz"),
+    "--turn": ("turn", "turn_sz"), "--river": ("river", "river_sz"),
 }
 
 # Not filters -- they change what is shown, not what is selected.
@@ -235,6 +258,20 @@ def build(argv):
                         raise SystemExit(f"unknown quick filter {name!r}")
                     parts.append("(" + QUICK_BY_KEY[name]["sql"] + ")")
                     described.append(QUICK_BY_KEY[name]["label"])
+                continue
+            if a in LINE_FLAGS:
+                # Normalised rather than taken as typed, because the columns
+                # are stored in one case and nobody holds shift for half a
+                # filter. A pattern with no wildcard means exactly that line
+                # and not a prefix of it -- "XBC" is a flop that ended, not
+                # every flop that started that way.
+                pattern = lines.normalise(v)
+                plain, sized = LINE_FLAGS[a]
+                with_sizes = any(c in lines.BUCKETS for c in pattern)
+                parts.append(f"{sized if with_sizes else plain} "
+                             f"GLOB {q(pattern)}")
+                described.append(f"{a.lstrip('-')} {pattern}"
+                                 + (" (sizes)" if with_sizes else ""))
                 continue
             if a == "--board":
                 for name in v.split(","):
@@ -961,11 +998,20 @@ def check(db_path=DB):
         "--stake": "0.1", "--deep": "50", "--short": "200",
         "--players": "6", "--live": "2",
         "--since": midpoint, "--until": midpoint,
+        # Line patterns that really occur, for the same reason the date is
+        # taken from the data: a pattern nobody played would fail the
+        # "actually narrows" half of this check without anything being wrong.
+        "--line": "*/XBC*", "--node": "*/XB", "--pre": "*R*",
+        "--flop": "XBC", "--turn": "XX", "--river": "*B*",
     }
     cases = [(k, [k]) for k in SWITCHES]
     cases += [(k, [k, v]) for k, v in samples.items()]
     cases += [("--board " + b, ["--board", b]) for b in BOARDS]
     cases.append(("--where", ["--where", "eff_bb > 100"]))
+    cases += [("--flop with sizes", ["--flop", "XBmC"]),
+              ("--line with sizes", ["--line", "*/XBm*"]),
+              ("--node with sizes", ["--node", "*/XBm"]),
+              ("--pre with sizes", ["--pre", "*Rl*"])]
     cases += [("--quick " + f["key"], ["--quick", f["key"]])
               for f in quick_filters()]
     cases.append(("--player", ["--player", con.execute(
