@@ -33,6 +33,7 @@ CHECKS = [
     ("importer", "the site detector, against hands already loaded"),
     ("equity", "the hand evaluator, against published equities"),
     ("query", "the filter surface: every filter runs, and every one narrows"),
+    ("diag", "a failure in any of the three places reaches the log"),
     ("app", "the window, its filter dialog, and the dark theme"),
     ("gui", "the page and the command line build the same filter"),
     ("population", "pool findings survive being split in half"),

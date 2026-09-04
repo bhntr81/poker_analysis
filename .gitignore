@@ -10,3 +10,6 @@ build/
 dist/
 *.spec
 hands.db.bak*
+
+# runtime log
+poker_analysis.log*

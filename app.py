@@ -19,13 +19,19 @@ own WHERE clause, and the disagreement would be silent -- so `--check`
 asserts the equality rather than trusting it.
 
     python app.py           open it
+    python app.py --debug   also print the log to the terminal
     python app.py --check   the window and the command line agree
+
+Anything that goes wrong is written to `poker_analysis.log` beside the
+program, including the failures Tk would otherwise swallow. `python diag.py`
+prints the end of it.
 
 Hands come in through the Import menu -- a folder, a file, another database,
 or whatever it can find on this computer. Nothing there asks which site the
 hands are from; every file is identified by reading it.
 """
 
+import os
 import queue
 import sys
 import threading
@@ -35,6 +41,7 @@ from tkinter import filedialog, font as tkfont, messagebox, ttk
 
 import sqlite3
 
+import diag
 import importer
 import query
 from stats import BY_KEY, STATS
@@ -187,7 +194,28 @@ class ImportMixin:
         m.add_command(label="Import a file…", command=self.import_file)
         m.add_command(label="Merge another database…", command=self.import_db)
         bar.add_cascade(label="Import", menu=m)
+
+        h = tk.Menu(bar, tearoff=0, background=PANEL, foreground=INK,
+                    activebackground=ACCENT, activeforeground=BG)
+        h.add_command(label="Show the log…", command=self.show_log)
+        h.add_command(label="Open the log folder",
+                      command=lambda: os.startfile(diag.LOG.parent))
+        bar.add_cascade(label="Help", menu=h)
         root.configure(menu=bar)
+
+    def show_log(self):
+        win = tk.Toplevel(self.master)
+        win.title("poker_analysis.log")
+        win.configure(background=BG)
+        win.geometry("900x560")
+        text = tk.Text(win, background=BG, foreground=INK, borderwidth=0,
+                       font=("Consolas", 9), padx=12, pady=10, wrap="none")
+        bar = ttk.Scrollbar(win, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=bar.set)
+        text.pack(side="left", fill="both", expand=True)
+        bar.pack(side="right", fill="y")
+        text.insert("end", f"{diag.LOG}\n\n{diag.tail(400)}")
+        text.see("end")
 
     def _run_import(self, title, work):
         """
@@ -452,6 +480,7 @@ class App(ImportMixin, ttk.Frame):
         except SystemExit as e:
             self.filter_line.configure(text=str(e))
             return
+        diag.event("refresh", view=view, filter=label)
         self.filter_line.configure(text="filter: " + label)
         self.summary.configure(text=self.describe_filter())
         if self.argv():
@@ -506,7 +535,13 @@ class App(ImportMixin, ttk.Frame):
             if not self._any(out):
                 out["why"] = query.why_empty(con, parts)
         except sqlite3.Error as e:
+            diag.event("query failed", view=view, where=where, error=str(e))
             out = {"view": view, "error": f"SQL: {e}"}
+        except Exception:
+            # A worker dying quietly leaves the window up and unresponsive,
+            # which is the hardest kind of failure to report from the outside.
+            diag._report(f"worker ({view})", *sys.exc_info()[1:])
+            out = {"view": view, "error": "something went wrong -- see the log"}
         finally:
             con.close()
         self.results.put((token, out))
@@ -772,8 +807,9 @@ class FilterDialog(tk.Toplevel):
 
         foot = ttk.Frame(self)
         foot.pack(fill="x", padx=20, pady=14)
-        ttk.Label(foot, text="every filter here is also a command-line flag",
-                  style="Dim.TLabel").pack(side="left")
+        ttk.Label(foot, style="Dim.TLabel",
+                  text="closing this window keeps your choices — "
+                       "CANCEL throws them away").pack(side="left")
         ttk.Button(foot, text="APPLY", style="Accent.TButton",
                    command=self.apply).pack(side="right", padx=(8, 0))
         ttk.Button(foot, text="RESET", command=self.reset).pack(side="right",
@@ -781,6 +817,12 @@ class FilterDialog(tk.Toplevel):
         ttk.Button(foot, text="CANCEL", command=self.cancel).pack(side="right")
         self.bind("<Escape>", lambda e: self.cancel())
         self.bind("<Return>", lambda e: self.apply())
+        # Closing the window keeps what was clicked. The dialog edits the
+        # filter in place, so shutting it with the title bar used to leave
+        # every choice set and the view never redrawn -- which looks exactly
+        # like a filter that does nothing, and was reported as one. CANCEL
+        # is the way to throw the choices away, and it is a button.
+        self.protocol("WM_DELETE_WINDOW", self.apply)
 
     # ---- the pieces a tab is made of ----------------------------------
     def _page(self, nb, title):
@@ -970,6 +1012,7 @@ class FilterDialog(tk.Toplevel):
 
     # ---- the three buttons ---------------------------------------------
     def apply(self):
+        diag.event("filter applied", argv=self.app.argv())
         self.grab_release()
         self.destroy()
         self.app.refresh()
@@ -1135,6 +1178,16 @@ def check(db_path=DB):
             clickable(kid, out)
         return out
 
+    # Closing the dialog must do something. It used to do nothing at all --
+    # the choices stayed set and the view was never redrawn -- which is
+    # indistinguishable from a filter that has no effect, and was reported
+    # as exactly that.
+    closer = dialog.protocol("WM_DELETE_WINDOW")
+    print(f"closing the dialog          "
+          f"{'applies the filter' if closer else 'DOES NOTHING'}")
+    if not closer:
+        fails.append("closing the filter dialog silently discards the redraw")
+
     offered = clickable(dialog, [])
     print(f"switches the window can set   "
           f"{len(query.SWITCHES) - len(missing)}/{len(query.SWITCHES)}")
@@ -1158,6 +1211,7 @@ def check(db_path=DB):
 
 
 def main(argv):
+    diag.setup(verbose="--debug" in argv)
     if "--check" in argv:
         return 0 if check() else 1
     if not DB.exists():
@@ -1168,6 +1222,7 @@ def main(argv):
     root.geometry("1360x880")
     root.minsize(1050, 640)
     dark(root)
+    diag.watch_tk(root)
     app = App(root)
     app._menu(root)
     app.load_options()
