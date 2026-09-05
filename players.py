@@ -69,13 +69,22 @@ CREATE INDEX players_class ON players(class, hands);
 # the program is a predicate over that one table and a join would be a
 # second way of asking.
 #
+# `n_reg` and `n_fish` count who else is still in the pot, and they exist
+# because `vs_class` only means anything heads up. That left 83% of the
+# database outside every matchup question: a three-way pot has no "the other
+# player", so it had no answer at all. Counting the company instead makes
+# "a fish is in this pot" and "everybody left is a reg" askable multiway,
+# and multiplies the sample the reg-versus-reg comparison has to work with
+# -- which is the binding constraint on every finding here.
+#
 # `vs_seat` is there and `vs_player` is not enough on its own: on Ignition
 # Zone nobody has a name, so a NULL `vs_player` means either "nobody is left
 # to face" or "the man opposite is a stranger", and those are different
 # facts. The seat is always known when there is one opponent, which is what
 # makes it the thing to check the walk against.
 COLUMNS = (("player_class", "TEXT"), ("vs_player", "TEXT"),
-           ("vs_class", "TEXT"), ("vs_seat", "INT"))
+            ("vs_class", "TEXT"), ("vs_seat", "INT"),
+            ("n_reg", "INT"), ("n_fish", "INT"))
 NAMES = tuple(c for c, _t in COLUMNS)
 
 
@@ -204,11 +213,16 @@ def stamp(con):
             if len(here) == 2:
                 other = next(iter(here - {a["seat"]}), None)
             who = who_is.get((hid, other)) if other is not None else None
+            # Everybody else still in, whether there is one of them or four.
+            company = [klass.get((a["site"], who_is.get((hid, seat))))
+                       for seat in here if seat != a["seat"]]
             out.append((
                 klass.get((a["site"], a["player"])),
                 who,
                 klass.get((a["site"], who)) if who else None,
                 other,
+                sum(c == "reg" for c in company),
+                sum(c == "fish" for c in company),
                 a["hand_id"], a["n"]))
             if a["action"] == "F":
                 folded.add(a["seat"])
@@ -216,7 +230,7 @@ def stamp(con):
     con.execute("CREATE TEMP TABLE stamped ("
                 + ", ".join(f"{c} {t}" for c, t in COLUMNS)
                 + ", hand_id TEXT, n INT)")
-    con.executemany("INSERT INTO stamped VALUES (?,?,?,?,?,?)", out)
+    con.executemany("INSERT INTO stamped VALUES (?,?,?,?,?,?,?,?)", out)
     con.execute("CREATE INDEX temp.stamped_key ON stamped(hand_id, n)")
     con.execute(
         "UPDATE decisions SET "
@@ -224,9 +238,14 @@ def stamp(con):
         + " FROM stamped WHERE decisions.hand_id = stamped.hand_id "
           "AND decisions.n = stamped.n")
     con.execute("CREATE INDEX IF NOT EXISTS dec_class "
-                "ON decisions(player_class, vs_class, street)")
+                "ON decisions(player_class, vs_class, n_fish, n_reg, street)")
     con.execute("CREATE INDEX IF NOT EXISTS dec_vsplayer "
                 "ON decisions(vs_player)")
+    # Who else is in the pot, on its own. It is in dec_class too, but third
+    # in that key, and a third column cannot be seeked without the first
+    # two -- so "a fish is in this pot" read every row until this existed.
+    con.execute("CREATE INDEX IF NOT EXISTS dec_company "
+                "ON decisions(n_fish, n_reg, street)")
     con.execute("ANALYZE")
 
 

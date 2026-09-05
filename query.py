@@ -40,9 +40,11 @@ import sqlite3
 import sys
 from pathlib import Path
 
+import shlex
+
 import lines
-from stats import (BY_KEY, STATS, fmt, rate, rates as stat_rates,
-                   rates_by, wilson)
+from stats import (BY_KEY, STATS, detectable, difference, fmt, holm,
+                   rate, rates as stat_rates, rates_by, wilson)
 
 DB = Path(__file__).parent / "hands.db"
 
@@ -121,7 +123,7 @@ LINE_FLAGS = {
 }
 
 # Not filters -- they change what is shown, not what is selected.
-OPTIONS = ("--by", "--show", "--min", "--out", "--hand")
+OPTIONS = ("--by", "--show", "--min", "--out", "--hand", "--versus")
 
 SWITCHES = {
     "--hero": "is_hero = 1",
@@ -146,6 +148,11 @@ SWITCHES = {
     "--fish": "player_class = 'fish'",
     "--vs-reg": "vs_class = 'reg'",
     "--vs-fish": "vs_class = 'fish'",
+    # The company, rather than the single opponent. `--vs-reg` needs the pot
+    # heads up, which is 17% of the database; these ask the same question of
+    # a pot of any size, which is most of the rest.
+    "--with-fish": "n_fish > 0",
+    "--regs-only": "n_fish = 0 AND n_reg > 0",
     "--drawing": "(fd IS NOT NULL OR sd IS NOT NULL)",
     # Both at once, which is the hand that plays like neither: a flush draw
     # with a straight draw beside it is usually a favourite against a pair.
@@ -485,6 +492,109 @@ def stats_of(con, where):
                      "note": s.note, "n": n, "k": k, "pct": 100 * p,
                      "band": 100 * (hi - lo) / 2})
     return n_dec, rows
+
+
+def show_versus(con, argv_a, argv_b, min_n=30, only=None):
+    """
+    Two filters, every stat, and whether the gap between them is real.
+
+    The point of this is the last two columns. A rate on its own invites the
+    reader to eyeball two numbers and decide; what settles it is the
+    interval on the DIFFERENCE, which is not the same question as whether
+    the two rates' own intervals overlap and is much less strict. And since
+    thirty stats are compared at once, one of them will clear 5% with
+    nothing going on, so the p-values are corrected for having asked thirty
+    questions rather than one.
+
+    Where nothing is significant the footer says how big a difference this
+    much data COULD have found. "No difference" and "not enough hands to
+    see one" are different findings, and the second is usually the true one.
+    """
+    where_a, label_a, _pa = build([a for a in argv_a if a not in OPTIONS
+                                   and not _is_value_of(argv_a, a)])
+    where_b, label_b, _pb = build(argv_b)
+    a_counts = stat_rates(con, where_a)
+    b_counts = stat_rates(con, where_b)
+
+    rows, ps = [], []
+    for st in STATS:
+        if st.source == "s" or st.key not in a_counts:
+            continue
+        # `--show` is not cosmetic here, it is the difference between an
+        # exploratory scan and a test. Comparing thirty stats and reporting
+        # the best one is how a finding gets manufactured; naming the stat
+        # first and comparing only that is how one gets established. The
+        # correction charges by how many questions were actually asked, so
+        # asking one is worth far more than asking thirty and picking.
+        if only and st.key not in only:
+            continue
+        n1, k1 = a_counts[st.key]
+        n2, k2 = b_counts.get(st.key, (0, 0))
+        # Too thin to compare, and worse than useless: an iso-raise on
+        # four chances contributes a meaningless row AND makes the
+        # correction for multiple questions stricter for every other stat.
+        if n1 < min_n or n2 < min_n:
+            continue
+        d, lo, hi, pv = difference(k1, n1, k2, n2)
+        rows.append([st, n1, k1, n2, k2, d, lo, hi, pv])
+        ps.append((st.key, pv))
+    adjusted_p = holm(ps)
+
+    print(f"\nA: {label_a}")
+    print(f"B: {label_b}")
+    print("=" * max(len(label_a), len(label_b), 40))
+    print(f"{'':24} {'A':>17} {'B':>17} {'A - B':>20}")
+    real = []
+    for st, n1, k1, n2, k2, d, lo, hi, pv in rows:
+        ap = adjusted_p.get(st.key)
+        mark = "  <-- real" if ap is not None and ap < 0.05 else ""
+        if mark:
+            real.append(st.label)
+        print(f"{st.label[:23]:24} "
+              f"{100 * k1 / n1:6.1f}% n={n1:<7,} "
+              f"{100 * k2 / n2:6.1f}% n={n2:<7,} "
+              f"{100 * d:+6.1f} [{100 * lo:+5.1f},{100 * hi:+5.1f}]{mark}")
+
+    print()
+    print(f"{len(rows)} stat{'' if len(rows) == 1 else 's'} compared, "
+          f"both sides at n >= {min_n}."
+          + ("" if only else "  Name one with --show to test it on its own."))
+
+    # Two lists, because they answer different questions and conflating them
+    # is how a report comes to be confidently wrong. The first is what the
+    # data says about each stat on its own. The second is what survives the
+    # fact that thirty questions were asked, and only the second is a
+    # finding.
+    apart = [(st, d, lo, hi, adjusted_p.get(st.key))
+             for st, _n1, _k1, _n2, _k2, d, lo, hi, _p in rows
+             if lo is not None and (lo > 0 or hi < 0)]
+    if apart:
+        print("\nDifferences that clear zero on their own:")
+        for st, d, lo, hi, ap in apart:
+            verdict = ("survives" if ap is not None and ap < 0.05
+                       else f"but not one of {len(rows)}")
+            print(f"  {st.label[:24]:26} {100 * d:+6.1f} points   "
+                  f"corrected p = {ap:.3f}   {verdict}")
+    if real:
+        print(f"\nReal: {', '.join(real)}")
+    else:
+        floors = [detectable(n1, n2, k1 / n1)
+                  for _st, n1, k1, n2, k2, *_r in rows if n1 and n2]
+        if floors:
+            floor = 100 * sorted(floors)[len(floors) // 2]
+            print(f"\nNothing survives being one of {len(rows)} questions "
+                  f"asked at once.")
+            print(f"A difference has to be about {floor:.0f} points before "
+                  f"this much data could see it, so \"no difference\" here "
+                  f"means")
+            print("\"no difference big enough to find\" -- which is a "
+                  "statement about the sample, not about poker.")
+
+
+def _is_value_of(argv, token):
+    """True if this token is the value belonging to the option before it."""
+    i = argv.index(token)
+    return i > 0 and argv[i - 1] in OPTIONS
 
 
 def show_stats(con, where, label, parts=()):
@@ -1247,6 +1357,14 @@ def main(argv):
     if opt("--hand"):
         con = sqlite3.connect(DB)
         show_hand(con, opt("--hand"))
+        con.close()
+        return 0
+
+    other = opt("--versus")
+    if other is not None:
+        con = sqlite3.connect(DB)
+        show_versus(con, argv, shlex.split(other), min_n,
+                     only=set(columns) if opt("--show") else None)
         con.close()
         return 0
 

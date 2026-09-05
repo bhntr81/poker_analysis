@@ -89,7 +89,9 @@ VS_SIDE = [("--vs-hero", "vs me"), ("--vs-pool", "vs the pool")]
 # somebody there is enough evidence about; everybody else is "unknown" and
 # is selected by neither of these, which is the point of them.
 WHO = [("--reg", "the player is a reg"), ("--fish", "the player is a fish"),
-       ("--vs-reg", "against a reg"), ("--vs-fish", "against a fish")]
+       ("--vs-reg", "against a reg"), ("--vs-fish", "against a fish"),
+       ("--regs-only", "everyone left is a reg"),
+       ("--with-fish", "a fish is in the pot")]
 SITUATIONS = [("--ip", "in position"), ("--oop", "out of position"),
               ("--pfa", "was the raiser"), ("--vs-pfa", "facing the raiser"),
               ("--multiway", "multiway"), ("--headsup", "heads up"),

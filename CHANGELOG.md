@@ -8,6 +8,63 @@ Newest first.
 
 ---
 
+## The differences were there; the test was wrong
+
+Every comparison in this project asked whether two 95% intervals overlap.
+That is the test everybody reaches for and it is **far too strict** —
+it behaves like a test at roughly the 99% level, so it throws away real
+differences and reports them as nothing.
+
+It did exactly that here. Regulars steal 41.1% against regulars and 51.0%
+against fish. The two intervals overlap by two points, and I reported no
+difference. The interval on the *difference* is −18.6 to −1.1 points,
+p = 0.027. The difference was always there.
+
+### Fixed — `stats.difference`, `stats.holm`, `stats.detectable`
+
+* **`difference`** gives Newcombe's interval on the gap between two rates,
+  built from the two Wilson intervals this project already uses, so the same
+  behaviour near 0 and 1 carries through.
+* **`holm`** corrects for how many questions were asked. Thirty stats
+  compared between two populations *will* produce one at p < 0.05 with
+  nothing going on — that is what p < 0.05 means. Swapping false negatives
+  for false positives is not an improvement.
+* **`detectable`** says how big a difference the sample could have found.
+  When nothing is significant, that number is the finding.
+
+`python query.py A --versus "B"` prints all three. **`--show <stat>` makes it
+a test rather than a scan**: the correction charges by the size of the
+family, so one stat named in advance is worth far more than the best of
+thirty.
+
+### Fixed — 83% of the database could not answer a matchup question
+
+`vs_class` is only filled when one opponent is left, because in a three-way
+pot there is no "the other player". That put **17% of decisions** inside
+every reg-versus-fish question and the rest outside it.
+
+`n_reg` and `n_fish` count the company instead — everybody else still in the
+pot, however many. `--regs-only` and `--with-fish` ask the same question of a
+pot of any size, and coverage goes **17.0% → 62.9%**. The smallest difference
+the comparison can see went from 12 points to 9.
+
+### And a candidate finding, stated as a candidate
+
+Regulars fold to a river bet **54.5%** in all-reg pots and **38.0%** when a
+fish is in the pot: +16.6 points, [+3.3, +29.0], p = 0.014 as a named test.
+
+It is not established. It was found in a thirty-way scan and then re-tested
+on the same data, which is not confirmation. Split in half it goes the same
+way in both — +24.0 (p = 0.011) and +9.2 (p = 0.342) — so the direction
+replicates and the size does not settle, on about 55 decisions a side. It is
+essentially all ACR.
+
+It is the best candidate this database has produced, and it makes sense:
+against a recreational player you call rivers lighter, because they bluff
+less and value-bet worse. Believing it needs hands that did not suggest it.
+
+---
+
 ## What the turn and the river did
 
 ### Added — eight columns on `decisions`, and `--turn-card` / `--river-card`

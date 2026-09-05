@@ -122,6 +122,29 @@ they did next. `--line` is the whole hand and includes it.
 
 ---
 
+### Comparing two populations
+
+```bash
+python query.py --reg --regs-only --versus "--reg --with-fish"
+python query.py --reg --regs-only --versus "--reg --with-fish" --show fold_to_river_bet
+```
+
+Prints both rates, the **difference**, and an interval on that difference —
+which is not the same question as whether the two rates' own intervals
+overlap, and is far less strict. It also corrects the p-values for how many
+stats were compared at once, because thirty comparisons will produce one at
+p < 0.05 with nothing going on.
+
+**Name the stat with `--show` and it is a test. Compare all thirty and the
+best one is a hypothesis.** The correction charges by the size of the
+family, so one named question is worth much more than the pick of thirty.
+
+Where nothing survives, the footer says how big a difference the sample
+*could* have found — "no difference" and "not enough hands to see one" are
+different findings.
+
+---
+
 ### Filtering by what the turn or river did
 
 ```bash
@@ -191,7 +214,11 @@ up to the pool.
 
 `--vs-reg` and `--vs-fish` only mean anything while one opponent is left:
 in a three-way pot there is no "the other player". They select heads-up
-decisions by construction.
+decisions by construction, which is 17% of the database.
+
+`--regs-only` and `--with-fish` ask the same thing of a pot of any size —
+everybody still in is a reg, or at least one of them is a fish — and between
+them cover 63%. Use these unless the matchup really has to be heads up.
 
 Only ACR names people. An Ignition ring identity lasts as long as somebody
 stays in the seat, and Zone names nobody.

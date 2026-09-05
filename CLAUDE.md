@@ -205,8 +205,25 @@ thing is a **column on `decisions`**, not a script.
 
 No percentage without its `n`, what it is a percentage of, and where it sits
 among comparable spots. Intervals come from `stats.wilson`, never the
-textbook formula. Two rates differ only when their intervals do not overlap.
-Population findings need split-half or they are not findings.
+textbook formula. Population findings need split-half or they are not
+findings.
+
+**Two rates are compared by an interval on their DIFFERENCE, never by
+whether their own intervals overlap.** The overlap test was the rule here
+until 5 Sep 2026 and it is wrong: it is far too strict, behaving like a test
+at about the 99% level, and it hid a real difference in this database.
+`stats.difference` gives the Newcombe interval on the gap and a p-value.
+
+**And correct for how many questions were asked.** Thirty stats compared
+between two populations will throw up one at p < 0.05 with nothing going on
+-- that is what p < 0.05 means. `stats.holm` charges each p-value by the
+size of the family. A stat named in advance with `--show` is a test; the
+best of thirty is a hypothesis.
+
+**When nothing is significant, print what could have been found.**
+`stats.detectable` gives the smallest difference the sample could see. "No
+difference" and "not enough hands to see one" are different findings and the
+second is usually the true one.
 
 ## House style
 

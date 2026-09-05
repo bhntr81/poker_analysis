@@ -32,7 +32,7 @@ Three rules are built in rather than left to whoever reads the output:
 
 import sqlite3
 import sys
-from math import sqrt
+from math import erfc, sqrt
 from pathlib import Path
 
 DB = Path(__file__).parent / "hands.db"
@@ -336,19 +336,104 @@ def rates_by_player(con, stat, where="1=1", params=()):
     return rates_by(con, stat, "player", where, params)
 
 
+def difference(k1, n1, k2, n2, z=1.96):
+    """
+    An interval on the DIFFERENCE between two rates, and a p-value.
+
+    Not two intervals held up beside each other. Asking whether two 95%
+    intervals overlap is a test everybody reaches for and it is the wrong
+    one: it is far too strict, behaving like a test at about the 99% level,
+    so it throws away real differences and calls them nothing. Two rates can
+    differ perfectly clearly while their intervals share a sliver.
+
+    This project asked exactly that question and got the wrong answer from
+    it. Regulars stole 41.1% against regulars and 51.0% against fish, the
+    intervals overlapped by two points, and it was reported as no
+    difference. The interval on the difference is 9.9 points wide of zero,
+    and the difference is real.
+
+    The interval is Newcombe's, built out of the two Wilson intervals this
+    project already uses -- so the same asymmetry that makes Wilson right
+    near 0 and 1 carries into the difference, and a rate of 0 out of 12
+    still behaves.
+
+    Returns (difference, low, high, p). The p-value is the ordinary pooled
+    two-proportion test and is there for `holm` to correct, because asking
+    thirty questions and reporting the best answer is its own error.
+    """
+    if not n1 or not n2:
+        return None, None, None, None
+    p1, l1, u1 = wilson(k1, n1, z)
+    p2, l2, u2 = wilson(k2, n2, z)
+    d = p1 - p2
+    lo = d - sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2)
+    hi = d + sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2)
+
+    pooled = (k1 + k2) / (n1 + n2)
+    se = sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
+    if not se:
+        return d, lo, hi, 1.0
+    return d, lo, hi, erfc(abs(d / se) / sqrt(2))
+
+
+# How far apart two rates have to be before this much data could see it,
+# at the usual 95% confidence and 80% power. 1.96 is the confidence, 0.8416
+# is the power, and they add because both tails have to be cleared.
+Z_ALPHA, Z_BETA = 1.96, 0.8416
+
+
+def detectable(n1, n2, p=0.5):
+    """
+    The smallest difference this much data could have found.
+
+    The number to print when nothing is significant, because "no
+    difference" and "no evidence either way" are different findings and only
+    one of them is usually true. At n=548 against n=157 the answer is about
+    9 points: anything smaller than that was never going to show up, and
+    saying so is more use than saying nothing was found.
+    """
+    if not n1 or not n2:
+        return None
+    return (Z_ALPHA + Z_BETA) * sqrt(p * (1 - p) * (1 / n1 + 1 / n2))
+
+
+def holm(pairs):
+    """
+    Adjusted p-values, for when many questions are asked at once.
+
+    Thirty stats compared between two populations will throw up one or two
+    at p < 0.05 with nothing going on at all -- that is what p < 0.05 means.
+    Holm's is the plainest correction that is not Bonferroni's
+    over-strictness: sort, and charge each p-value by how many were still
+    unresolved when it was reached.
+
+    Returns {key: adjusted p}, and adjusted p-values never decrease down the
+    sorted order, which is what keeps the answer coherent.
+    """
+    live = sorted((p, k) for k, p in pairs if p is not None)
+    out, running = {}, 0.0
+    for i, (p, key) in enumerate(live):
+        running = max(running, min(1.0, p * (len(live) - i)))
+        out[key] = running
+    for key, p in pairs:
+        out.setdefault(key, None)
+    return out
+
+
 def compare(con, stat, where_a, where_b, params_a=(), params_b=()):
     """
-    Two populations on one stat, and whether the difference is real.
+    Two populations on one stat: both rates, and the gap between them.
 
-    "Real" here means the intervals do not overlap. It is a blunt test and
-    deliberately so -- it is the one that stops a 40% on 15 chances from
-    being reported as looser than a 30% on 4,000.
+    Returns (a, b, (difference, low, high, p)) where a and b are whatever
+    `rate` returns. Whether the gap is real is a question about the third
+    element and about how many other stats were asked at the same time --
+    see `holm` -- and is deliberately not answered here as a bare boolean.
     """
     a = rate(con, stat, where_a, params_a)
     b = rate(con, stat, where_b, params_b)
-    if a[0] == 0 or b[0] == 0:
-        return a, b, False
-    return a, b, (a[3] > b[4]) or (b[3] > a[4])
+    if not a[0] or not b[0]:
+        return a, b, (None, None, None, None)
+    return a, b, difference(a[1], a[0], b[1], b[0])
 
 
 def fmt(n, k, p, lo, hi, min_n=30):
