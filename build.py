@@ -49,7 +49,7 @@ TARGETS = {
 # because a missed one produces a program that starts and then fails on the
 # first click, which is a much worse way to find out.
 MODULES = ["query", "stats", "equity", "decisions", "spots", "lines",
-           "importer", "acr", "ignition", "diag"]
+           "strength", "players", "importer", "acr", "ignition", "diag"]
 
 
 def target():
@@ -145,16 +145,27 @@ def check():
     if missing:
         fails.append("a runtime module imports something outside the stdlib")
 
+    # And nothing may sit in the folder that nothing runs. 2,733 lines of a
+    # different program lived here for weeks with a note in the README
+    # explaining why they were not deleted, which is a problem being
+    # described rather than a decision being made. This is the check that
+    # would have said so on the first day.
+    orphans = _unreachable()
+    print(f"every module is reachable  "
+          f"{'yes' if not orphans else 'NO: ' + ', '.join(orphans)}")
+    if orphans:
+        fails.append("modules nothing imports or runs: " + ", ".join(orphans))
+
     print()
     print("FAIL: " + "; ".join(fails) if fails else "PASS")
     return not fails
 
 
-# The modules the program actually runs. The solver folder and this script
-# are not among them: PyInstaller is a build tool, and the solver is a
-# different product that shares the folder.
-RUNTIME = ("app", "query", "stats", "spots", "decisions", "lines", "equity",
-           "importer", "acr", "ignition", "diag", "opponents", "gui")
+# The modules the program actually runs. This script is not among them --
+# PyInstaller is a build tool and never a dependency of what it builds.
+RUNTIME = ("app", "query", "stats", "spots", "decisions", "lines", "strength",
+           "players", "equity", "importer", "acr", "ignition", "diag",
+           "opponents", "gui")
 
 
 def _third_party():
@@ -177,6 +188,42 @@ def _third_party():
                 continue
             bad |= {m for m in mods if m and m not in stdlib and m not in ours}
     return sorted(bad)
+
+
+def _unreachable():
+    """
+    Modules nothing reaches from the three things anybody runs.
+
+    The roots are the program, the check suite and this script. `check.py`
+    names its modules as strings rather than importing them, so those are
+    read out of it -- a module that has a check is a module with a reason to
+    exist even if nothing imports it.
+    """
+    import ast
+    mods = {p.stem: p for p in HERE.glob("*.py")}
+    named = set()
+    text = (HERE / "check.py").read_text(encoding="utf-8")
+    for line in text.splitlines():
+        if line.strip().startswith('("') and '",' in line:
+            named.add(line.strip().split('"')[1])
+
+    def imports(path):
+        out = set()
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                out |= {a.name.split(".")[0] for a in node.names}
+            elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:
+                out.add(node.module.split(".")[0])
+        return out
+
+    seen, queue = set(), ["app", "check", "build"] + sorted(named)
+    while queue:
+        m = queue.pop()
+        if m in seen or m not in mods:
+            continue
+        seen.add(m)
+        queue += [x for x in imports(mods[m]) if x in mods]
+    return sorted(set(mods) - seen)
 
 
 if __name__ == "__main__":

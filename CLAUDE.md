@@ -5,10 +5,12 @@ scratch.
 
 **Scope, and it is narrow on purpose: the tracking and filtering half of a
 Hand2Note. No HUD, no solver.** A tracker says what people do; a solver says
-what is correct. The solver modules here (`walk`, `leaks`, `poptree`,
-`bestresponse`, `postflop`, `gtowizard/`) are a different product that
-happens to share the folder. They work, they are not deleted, and no work is
-aimed at them.
+what is correct. The solver modules that used to share this folder — `walk`,
+`leaks`, `poptree`, `bestresponse`, `postflop`, `gtowizard/` — were deleted
+on 5 Sep 2026, 2,733 lines of a different product. They are in the history
+at `4927a11` if they are ever wanted. **Nothing here reaches them, and
+nothing should reimport them**: if a solver is wanted it is a separate
+repository, not a folder that quietly grows back.
 
 Not the screenshot reader either. That is a separate project in
 `Desktop/gto_pipeline`. If a module named `card_reader`, `table_ocr`,
@@ -141,8 +143,8 @@ Facts that stay true, and that have each been got wrong at least once:
   53 regs and 134 fish out of 1,295 identities; the rest are `unknown`, and
   unknown is an answer.
 - **Ignition is the only site that shows folded hands.** `population.py`,
-  `walk.py` and `postflop.py` are pinned to `site='ignition'` because their
-  premise is revealed ranges, and ACR reveals 23%.
+  `population.py` is pinned to `site='ignition'` because its premise is
+  revealed ranges, and ACR reveals 23%.
 - **The cached solver nodes are one gametype**: 6-max NL25 with rake.
   Pricing a $0.02 or $0.50 ACR hand against them prices it at the
   wrong stake.

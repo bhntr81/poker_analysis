@@ -8,6 +8,26 @@ Newest first.
 
 ---
 
+## Two programs stopped sharing a folder
+
+Removed: `walk.py`, `leaks.py`, `poptree.py`, `postflop.py`,
+`bestresponse.py` and the `gtowizard/` package — **2,733 lines**, and every
+one of them unreachable from the program, the check suite or the build.
+
+They priced play against cached solver solutions, which answers "what is
+correct". This is a tracker, which answers "what happened". The scope note
+in `README.md` had said for weeks that they were "not deleted" and that no
+work was aimed at them, and a folder that says that about a third of its own
+code is describing a problem rather than a decision.
+
+Nothing was guessed at. The import graph was walked from the three roots
+anybody actually runs — `app.py`, `check.py`, `build.py` — plus every module
+named in the check list, and these were exactly the set nothing reached.
+
+They are in the history: `git checkout 4927a11 -- walk.py gtowizard/`.
+
+---
+
 ## The differences were there; the test was wrong
 
 Every comparison in this project asked whether two 95% intervals overlap.

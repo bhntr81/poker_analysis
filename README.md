@@ -16,11 +16,13 @@ tells you what people **do**.
     answers "what is correct"; a tracker answers "what happened". Mixing the
     two is how a tracker turns into a different product.
 
-The solver modules still in this repo — `walk.py`, `leaks.py`, `poptree.py`,
-`bestresponse.py`, `postflop.py` and the `gtowizard` package — are that
-different product. They work and they were expensive to build, so they are
-not deleted, but they are **not this program** and no work here is aimed at
-them.
+The solver modules that used to sit in this folder — `walk.py`, `leaks.py`,
+`poptree.py`, `bestresponse.py`, `postflop.py` and the `gtowizard` package —
+were that different product, and they are gone as of 5 Sep 2026. They worked
+and they were expensive to build, so they are not lost: `git show
+4927a11:walk.py` still has any of them, and `git checkout 4927a11 -- walk.py
+gtowizard/` brings the set back. What they were doing was making this repo
+look like two programs sharing a folder.
 
 ## Why build one instead of buying one
 
@@ -71,10 +73,6 @@ python query.py --pool --pot 3bet --street flop --ip
 python query.py --hero --board mono --results
 python query.py --player dblj32 --pos BTN --hands
 ```
-
-Out of scope but still present: `walk.py`, `leaks.py`, `poptree.py`,
-`bestresponse.py`, `postflop.py` and `gtowizard/`, which price play against
-a solver. See **Scope** above.
 
 ## The database, as it stands
 

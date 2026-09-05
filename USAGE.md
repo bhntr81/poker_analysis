@@ -403,21 +403,21 @@ The leaderboard ranks by how many stats clear the bar, on the reasoning that
 someone unusual in six ways is both more exploitable and more reliably
 measured than someone unusual in one.
 
-### `population.py` and the solver modules
+### `population.py`
 
-Written before the stat engine and still hardcoding their own SQL. They work
-and they do things the engine cannot yet:
+Written before the stat engine and still hardcoding its own SQL. It does one
+thing the engine cannot: split-half validation of a finding about the pool.
 
 ```bash
 python population.py            # the pool's leak map and revealed ranges
 python population.py --check    # split-half validation, PASS or FAIL
-python poptree.py               # the pool beside the solver, same nodes
-python leaks.py                 # hero's EV loss per preflop decision
-python bestresponse.py          # the exploitative chart vs. the measured pool
 ```
 
-These need GTO Wizard solutions cached in the database (1,510 nodes are
-already there). Fetching more needs Playwright and a subscription.
+The solver modules that used to be documented here — `poptree.py`,
+`leaks.py`, `bestresponse.py`, `walk.py`, `postflop.py` and `gtowizard/` —
+were removed on 5 Sep 2026. They priced play against cached GTO Wizard
+solutions, which is answering "what is correct" and is a different program.
+`git checkout 4927a11 -- walk.py gtowizard/` brings any of them back.
 
 ---
 
