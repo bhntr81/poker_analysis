@@ -78,7 +78,15 @@ BUCKETS = "smlpo"
 # The columns worth a B-tree. `node_sz` and `sized` are not among them:
 # every pattern anybody writes against those starts with a wildcard, so
 # there is no prefix to seek on and the index would be built and never read.
-INDEXED = ("line", "node", "pre", "flop", "turn", "river")
+# The columns worth a B-tree. `sized` and `node_sz` are not among them: a
+# pattern against the whole hand's line effectively always begins with a
+# wildcard, so there is no prefix to seek on and the index would be built
+# and never read. The per-street sized columns are a different matter and
+# were left out twice by that same reasoning, wrongly -- `--flop XBmC` has
+# no wildcard in it at all, and without an index it reads every row.
+INDEXED = ("line", "node",
+           "pre", "flop", "turn", "river",
+           "pre_sz", "flop_sz", "turn_sz", "river_sz")
 
 LINE_COLUMNS = ("pre", "flop", "turn", "river",
                 "pre_sz", "flop_sz", "turn_sz", "river_sz",

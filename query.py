@@ -97,6 +97,8 @@ VALUE_FLAGS = {
     "--line": None, "--node": None,
     "--pre": None, "--flop": None, "--turn": None, "--river": None,
     "--board": None,        # handled separately: named textures
+    "--turn-card": None,    # what the turn did to the board
+    "--river-card": None,   # and the river
     "--quick": None,        # one or more named filters from `quick_filters`
     "--where": None,        # raw SQL escape hatch
 }
@@ -203,6 +205,24 @@ BOARDS = {
     "low": "fl_hi IN ('2','3','4','5','6','7','8','9')",
 }
 
+# What a later card did. `--board` describes the flop, which arrives all at
+# once; these describe a single card arriving on a board that was already
+# there, which is a different kind of fact and needs its own words.
+#
+# "Straight" means different things on the two streets and deliberately so:
+# on the turn it is the board coming to one card off a straight, and on the
+# river it is that card arriving. Those are the events that matter on each,
+# and one definition covering both would describe neither.
+RUNOUT = {
+    "over": "{p}_over = 1",
+    "pair": "{p}_pair = 1",
+    "flush": "{p}_flush = 1",
+    "straight": "{p}_straight = 1",
+    "brick": "{p}_over = 0 AND {p}_pair = 0 AND {p}_flush = 0 "
+             "AND {p}_straight = 0",
+}
+RUNOUT_FLAG = {"--turn-card": "tn", "--river-card": "rv"}
+
 
 # A statistic and a hand filter are the same object seen twice. A `Stat` is
 # a chance and an action -- "the times a continuation bet was possible" and
@@ -299,6 +319,16 @@ def build(argv):
                 described.append(f"{a.lstrip('-')} {pattern}"
                                  + (" (sizes)" if with_sizes else ""))
                 continue
+            if a in RUNOUT_FLAG:
+                pre = RUNOUT_FLAG[a]
+                for name in v.split(","):
+                    if name not in RUNOUT:
+                        raise SystemExit(
+                            f"unknown runout {name!r} -- one of: "
+                            f"{', '.join(RUNOUT)}")
+                    parts.append("(" + RUNOUT[name].format(p=pre) + ")")
+                described.append(f"{a.lstrip('-')} {v}")
+                continue
             if a == "--board":
                 for name in v.split(","):
                     if name not in BOARDS:
@@ -349,6 +379,8 @@ UNSHOWN_NULL = {
     "sd": "a draw cannot be seen in a hand that was never shown",
 }
 ONLY_POSTFLOP = {
+    "tn_": "the turn had not come",
+    "rv_": "the river had not come",
     "made": "a hand becomes something when the flop comes",
     "fd": "there is nothing to draw to before the flop",
     "sd": "there is nothing to draw to before the flop",
@@ -1075,6 +1107,8 @@ def check(db_path=DB):
     cases = [(k, [k]) for k in SWITCHES]
     cases += [(k, [k, v]) for k, v in samples.items()]
     cases += [("--board " + b, ["--board", b]) for b in BOARDS]
+    cases += [(f"{flag} {name}", [flag, name])
+              for flag in RUNOUT_FLAG for name in RUNOUT]
     cases.append(("--where", ["--where", "eff_bb > 100"]))
     cases += [("--flop with sizes", ["--flop", "XBmC"]),
               ("--line with sizes", ["--line", "*/XBm*"]),

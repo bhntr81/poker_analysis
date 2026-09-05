@@ -8,6 +8,63 @@ Newest first.
 
 ---
 
+## What the turn and the river did
+
+### Added — eight columns on `decisions`, and `--turn-card` / `--river-card`
+
+`--board` described the flop and nothing described the two cards after it,
+so "the turn brought a flush card" and "the river paired the board" — two of
+the commonest questions anybody asks a tracker — could not be asked at all.
+
+`over` · `pair` · `flush` · `straight` · `brick`. A flush card takes some
+suit to three on the board. **Straight means a different thing on each
+street and deliberately so**: on the turn it is the board coming to one card
+off a straight, on the river it is that card arriving. Those are the events
+that matter on their respective streets, and one definition covering both
+would describe neither.
+
+They sit in `decisions.py` beside `flop_texture` rather than in a module of
+their own, because board texture split across two files is two places for
+the same idea to drift. NULL until the card is out, for the same reason the
+flop's texture is NULL before the flop.
+
+What the pool actually sees:
+
+| turn | | river | |
+|---|---|---|---|
+| brick | 50.3% | paired | 22.0% |
+| overcard | 21.4% | flush card | 22.6% |
+| paired | 16.4% | overcard | 16.9% |
+| flush card | 13.5% | completed a straight | 0.4% |
+| 4 to a straight | 3.7% | | |
+
+### Fixed — three indexes that existed in the database and not in the code
+
+`dec_flags`, `dec_game` and `dec_size` were created by hand while measuring
+and two `.replace()` calls that were meant to write them into `decisions.py`
+silently matched nothing. The database had them; the source did not. So the
+rebuild for this change dropped them and **twenty-eight filters went back to
+reading every row**.
+
+The plan check caught it on the very next run. That is the entire argument
+for asserting query *plans* rather than query *times*: at ninety thousand
+rows the difference between a seek and a scan is a fifth of a second, which
+nobody would have noticed until the corpus was ten times bigger and the
+cause ten times colder.
+
+The same silent no-op had also dropped the four sized-line indexes, which
+the check caught in the same run. Every patch in this session now asserts
+its anchor before replacing it.
+
+### Also
+
+`completing()` — the ranks that would finish a straight — moved from
+`strength.py` into `equity.py`, where the rest of the card logic lives, so
+that the two modules that want it share one answer rather than each keeping
+their own.
+
+---
+
 ## What the hand actually is, once the flop is out
 
 ### Added — `strength.py`

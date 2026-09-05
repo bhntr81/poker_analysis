@@ -121,6 +121,11 @@ Facts that stay true, and that have each been got wrong at least once:
   `table:seat:segment` -- one person for as long as they stay sat there, a
   different one after. Zone is nobody at all. `players.durable` says which,
   and anything that counts identities as people must respect it.
+- **The turn and the river are described by what the card DID**, not by
+  what the board looks like afterwards, and "straight" therefore means one
+  thing on the turn (the board is now a card off one) and another on the
+  river (that card came). `--board` remains the flop, which arrives all at
+  once.
 - **A draw has to be the player's own.** Four hearts on the board is not a
   flush draw, it is a board everybody shares; a pair entirely on the board
   is `board pair` and not a pair the player holds. Every test in

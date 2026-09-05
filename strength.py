@@ -43,7 +43,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
-from equity import RANKS, best5, card
+from equity import RANKS, best5, card, completing
 
 DB = Path(__file__).parent / "hands.db"
 
@@ -66,27 +66,6 @@ GOOD = RANKS.index("T")
 def parse(text):
     return [card(c) for c in (text or "").split()]
 
-
-def completing(ranks):
-    """
-    Every rank that would finish a straight, given these.
-
-    A five-card straight is a window of five consecutive ranks with exactly
-    one missing, so the windows are walked rather than the ranks. The ace
-    plays low as well as high, which is the one straight whose top card is
-    not its highest rank and the one every hand-classifier gets wrong first.
-    """
-    have = set(ranks)
-    if ACE in have:
-        have.add(-1)
-    out = set()
-    for low in range(-1, 9):
-        window = set(range(low, low + 5))
-        missing = window - have
-        if len(missing) == 1:
-            (m,) = missing
-            out.add(ACE if m == -1 else m)
-    return out
 
 
 def straight_draw(hole, board):

@@ -27,6 +27,7 @@ import sqlite3
 import sys
 from pathlib import Path
 
+from equity import completing
 from spots import combo_of, is_aggressive, with_pot
 
 DB = Path(__file__).parent / "hands.db"
@@ -61,6 +62,12 @@ CREATE TABLE decisions (
   -- the flop, described the way a filter wants to ask about it
   fl_paired INT, fl_mono INT, fl_twotone INT, fl_conn INT, fl_hi TEXT,
 
+  -- and what each later card did to it. NULL until that card is out, for
+  -- the same reason the flop's texture is NULL before the flop: a decision
+  -- made on the flop was not made on a board the turn had paired.
+  tn_over INT, tn_pair INT, tn_flush INT, tn_straight INT,
+  rv_over INT, rv_pair INT, rv_flush INT, rv_straight INT,
+
   PRIMARY KEY (hand_id, n));
 """
 
@@ -91,6 +98,24 @@ CREATE TABLE decisions (
 #               a fifty-column table end to end     256ms -> 3.9ms,
 #               and --multiway 224ms -> 13ms
 #
+#   dec_flags   the nine yes/no switches. None of them narrows anything --
+#               "in position" is half the table -- so none can be seeked,
+#               and the gain is entirely that seven small columns are read
+#               instead of fifty                    366ms -> 1.7ms
+#   dec_game    stake and table size                223ms -> 6.4ms
+#   dec_size    bet sizes as a fraction of the pot. `street` is in it for
+#               one reason: without it the overbet filter fetched a row per
+#               match and took 622ms, and with it the index answers the
+#               whole question                      194ms -> 31ms
+#   dec_runout  the eight flags for what the turn and river did, for the
+#               same reason as dec_board: eight small columns beside fifty
+#
+# Three of these were measured against a database they had been created in
+# by hand and never written down here, so a rebuild silently lost them and
+# twenty-eight filters went back to reading every row. The plan check caught
+# it on the next run, which is the whole reason it asserts plans rather than
+# times -- at ninety thousand rows the difference is invisible.
+#
 # Two more were built, measured and thrown away. A wide covering index over
 # the whole situation fixed no query these do not, and cost 7MB. An index
 # shaped exactly for the stat predicates made every quick filter's COUNT
@@ -111,6 +136,14 @@ CREATE INDEX IF NOT EXISTS dec_board
 CREATE INDEX IF NOT EXISTS dec_combo ON decisions(combo);
 CREATE INDEX IF NOT EXISTS dec_allin ON decisions(allin) WHERE allin = 1;
 CREATE INDEX IF NOT EXISTS dec_depth ON decisions(eff_bb, n_live);
+CREATE INDEX IF NOT EXISTS dec_flags
+    ON decisions(is_ip, is_pfa, agg, vs_pfa, vs_hero, standard, street);
+CREATE INDEX IF NOT EXISTS dec_game ON decisions(bb, n_players, fmt);
+CREATE INDEX IF NOT EXISTS dec_size
+    ON decisions(pot_frac, to_call, pot_before, street);
+CREATE INDEX IF NOT EXISTS dec_runout
+    ON decisions(tn_over, tn_pair, tn_flush, tn_straight,
+                 rv_over, rv_pair, rv_flush, rv_straight, street);
 """
 
 
@@ -149,6 +182,49 @@ def flop_texture(board):
     # the board is not connectedness.
     return (paired, int(len(set(suits)) == 1), int(len(set(suits)) == 2),
             int(not paired and idx[2] - idx[0] <= 4), RANKS[idx[2]])
+
+
+def one_card(before, card):
+    """
+    What a single new card did to the board in front of it.
+
+    Four facts, and "brick" is the absence of all four rather than a fifth
+    column, because a card that does nothing is defined by what it did not
+    do and a column for it would have to be kept in step with the others.
+
+    A flush card is one that takes some suit to three on the board -- three
+    is where a flush becomes possible and where people start playing as
+    though it has. Straight is asymmetric between the streets on purpose:
+    on the turn it means the board is now one card away from a straight,
+    and on the river it means that card came. Those are the meaningful
+    events on their respective streets, and a single definition covering
+    both would describe neither.
+    """
+    ranks = [RANKS.index(c[0]) for c in before]
+    suits = [c[1] for c in before]
+    r, suit = RANKS.index(card[0]), card[1]
+
+    over = int(bool(ranks) and r > max(ranks))
+    paired = int(r in ranks)
+    flush = int(suits.count(suit) + 1 >= 3)
+    if len(before) == 3:
+        # The turn: did it bring the board to one card off a straight?
+        straight = int(bool(completing(ranks + [r])) and not completing(ranks))
+    else:
+        # The river: did it bring the card the board was waiting for?
+        straight = int(r in completing(ranks))
+    return (over, paired, flush, straight)
+
+
+def runout(board, street):
+    """The turn's four facts then the river's, blank until each card is out."""
+    cards = (board or "").split()
+    blank = (None,) * 4
+    turn = (one_card(cards[:3], cards[3])
+            if street in ("turn", "river") and len(cards) >= 4 else blank)
+    river = (one_card(cards[:4], cards[4])
+             if street == "river" and len(cards) >= 5 else blank)
+    return turn + river
 
 
 def board_to(board, street):
@@ -335,7 +411,8 @@ def build(db_path=DB):
                 # flops then selects preflop folds in hands that happened to
                 # run out monotone. That returned 194 hands of which 69 had
                 # seen a flop at all.
-                *(texture if street != "preflop" else (None,) * 5)))
+                *(texture if street != "preflop" else (None,) * 5),
+                *runout(h["board"], street)))
 
             first_of_street = False
             acted_this.add(seat)

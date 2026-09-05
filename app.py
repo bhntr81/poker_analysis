@@ -394,7 +394,7 @@ class App(ImportMixin, ttk.Frame):
         self.multi = {"pos": set(), "vs": set(), "street": set(),
                       "pot": set(), "board": set(), "quick": set(),
                       "made": set(), "kicker": set(), "fd": set(),
-                      "sd": set()}
+                      "sd": set(), "turn_card": set(), "river_card": set()}
         # The filter's values live here rather than on the widgets, because
         # the widgets belong to a dialog that is destroyed every time it is
         # closed and the filter is not.
@@ -516,7 +516,9 @@ class App(ImportMixin, ttk.Frame):
                             ("street", "--street"), ("pot", "--pot"),
                             ("board", "--board"), ("quick", "--quick"),
                             ("made", "--made"), ("kicker", "--kicker"),
-                            ("fd", "--fd"), ("sd", "--sd")):
+                            ("fd", "--fd"), ("sd", "--sd"),
+                            ("turn_card", "--turn-card"),
+                            ("river_card", "--river-card")):
             if self.multi.get(group):
                 argv += [flag, ",".join(sorted(self.multi[group]))]
         for name, flag in (("site", "--site"), ("stake", "--stake"),
@@ -1053,6 +1055,20 @@ class FilterDialog(tk.Toplevel):
         self._grid(page, [(lambda parent, v=v: self._pick(
             parent, v, *self._set_item("board", v)))
             for v in query.BOARDS])
+        self._heading(page, "what the turn card did")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("turn_card", v)))
+            for v in query.RUNOUT])
+        self._heading(page, "what the river card did")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("river_card", v)))
+            for v in query.RUNOUT])
+        ttk.Label(page, style="Dim.TLabel", wraplength=980, justify="left",
+                  text="A flush card is one that takes a suit to three on "
+                       "the board. On the turn, straight means the board is "
+                       "now one card off one; on the river it means that "
+                       "card came. A brick did none of the four."
+                  ).pack(anchor="w", padx=18, pady=(6, 0))
 
     def _cards_tab(self, nb):
         """

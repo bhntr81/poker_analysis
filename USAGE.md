@@ -122,6 +122,27 @@ they did next. `--line` is the whole hand and includes it.
 
 ---
 
+### Filtering by what the turn or river did
+
+```bash
+python query.py --turn-card flush --street turn      # the turn brought a flush card
+python query.py --river-card pair --pot 3bet         # the river paired the board
+python query.py --turn-card brick --board dry        # a dry flop and a turn that changed nothing
+```
+
+`over` · `pair` · `flush` · `straight` · `brick`
+
+A **flush card** is one that takes some suit to three on the board. On the
+turn, **straight** means the board has come to one card off a straight; on
+the river it means that card arrived. Those are the events that matter on
+each street, and one definition covering both would describe neither. A
+**brick** did none of the four.
+
+`--board` still describes the flop, which arrives all at once. These
+describe a single card landing on a board that was already there.
+
+---
+
 ### Filtering by what the hand is
 
 ```bash

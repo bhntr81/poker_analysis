@@ -41,6 +41,32 @@ def card(c):
     return RANKS.index(c[0]), SUITS.index(c[1])
 
 
+def completing(ranks):
+    """
+    Every rank that would finish a straight, given these.
+
+    A five-card straight is a window of five consecutive ranks with exactly
+    one missing, so the windows are walked rather than the ranks. The ace
+    plays low as well as high -- the one straight whose top card is not its
+    highest rank, and the one every hand classifier gets wrong first.
+
+    Here rather than in the two modules that want it, because a second
+    answer to "what completes a straight" is a second answer that would
+    drift.
+    """
+    ace = RANKS.index("A")
+    have = set(ranks)
+    if ace in have:
+        have.add(-1)
+    out = set()
+    for low in range(-1, 9):
+        missing = set(range(low, low + 5)) - have
+        if len(missing) == 1:
+            (m,) = missing
+            out.add(ace if m == -1 else m)
+    return out
+
+
 def best5(seven):
     """
     The best five-card hand out of five, six or seven cards.
