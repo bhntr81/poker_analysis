@@ -62,6 +62,22 @@ CATEGORY = {8: "straight flush", 7: "quads", 6: "boat", 5: "flush",
 ACE = RANKS.index("A")
 GOOD = RANKS.index("T")
 
+# Strongest first, which is the order a range wants to be read down.
+ORDER = ("straight flush", "quads", "boat", "flush", "straight", "set",
+         "trips", "two pair", "overpair", "top pair", "middle pair",
+         "weak pair", "under pair", "board pair", "high card")
+
+# Which of those count as weak -- the one judgement in this module that is
+# opinion rather than cards. It is a single list for the reason Hand2Note
+# puts it in a settings page with a checkbox per row: somebody will
+# disagree, and the disagreement should be a line changed rather than an
+# argument with the program.
+#
+# The line is drawn under middle pair, because a middle pair calls a river
+# bet and a bottom pair does not, and what the number is for is exactly how
+# much of a betting range is hands that cannot call.
+WEAK = ("high card", "board pair", "weak pair", "under pair")
+
 
 def parse(text):
     return [card(c) for c in (text or "").split()]
@@ -75,7 +91,13 @@ def straight_draw(hole, board):
     A completing rank only counts when the five cards it would make include
     a rank the player has and the board has not -- otherwise the draw
     belongs to everybody at the table and describes nothing about this hand.
+
+    And nothing draws on the river. `flush_draw` has always said so and this
+    did not, so a river range came back 29.6% "straight draw" -- a third of
+    it holding a draw to a card that was never coming.
     """
+    if len(board) >= 5:
+        return None
     hr, br = {r for r, _s in hole}, {r for r, _s in board}
     mine = set()
     for r in completing(hr | br):
@@ -301,6 +323,11 @@ KNOWN = [
     # The ace is a real wheel gutshot though, and it is the player's.
     ("Ac Kd", "2h 3h 4h", "high card", None, None, "gutshot"),
     ("Ac Kd", "5h 6d 7c 8s", "high card", None, None, None),
+    # Nothing draws on the river. This hand is an open-ender on the turn and
+    # is nothing at all once the fifth card is out -- a river range came back
+    # a third "straight draw" until this was tested.
+    ("9h 8d", "7s 6d 2c Kh", "high card", None, None, "oesd"),
+    ("9h 8d", "7s 6d 2c Kh 3s", "high card", None, None, None),
 ]
 
 

@@ -8,6 +8,101 @@ Newest first.
 
 ---
 
+## A range you can read, an updater, and four bugs from one screenshot
+
+### Added — the range breakdown, `--range` and its own tab
+
+A frequency is a number about somebody. A range is a number about what to
+do: "he bets the river 40%" says nothing until you know how much of that
+40% is a hand that cannot call. Hand2Note draws it as the postflop diagram,
+and it needed nothing this database has not had since `strength.py` — the
+hands are already named, so a range is a `GROUP BY` over the filter.
+
+Facing a bet on the flop, the pool holds:
+
+| | | | |
+|---|---|---|---|
+| high card | 43.3% | weak | of which 34.2% are drawing |
+| middle pair | 13.5% | | |
+| top pair | 12.7% | | |
+| board pair | 9.5% | weak | |
+| **WEAK** | **60.7%** | | hands that cannot call |
+
+The weak/strong line is drawn under middle pair and lives in one list,
+`strength.WEAK`, for the reason H2N puts it in a settings page with a
+checkbox per row: somebody will disagree, and disagreeing should be a line
+changed rather than an argument.
+
+**It is the range that was *seen*.** Ignition shows every hand at showdown
+including folds; ACR shows 23%. Every view prints what fraction of the
+selection had cards to read, because a quarter of a range presented as the
+range is worse than no range.
+
+### Fixed — nothing draws on the river
+
+`flush_draw` had always known this. `straight_draw` did not, so a river
+range came back **29.6% "straight draw"** — a third of it drawing to a card
+that was never coming. Found by reading the first range breakdown the
+program ever printed.
+
+### Fixed — four things, from one screenshot and one log
+
+* **"Why is there no green line?"** It was underneath. `LINE` was iterated
+  in declaration order, so the yellow all-in EV line was painted last and
+  covered the green total — and the two were *identical*, which was the
+  second bug.
+* **The all-in EV line was barely adjusting anything.** The query that found
+  all-in hands required the all-in to be the hand's **last action**, and a
+  shove is nearly always called, so it found 148 hands out of 681 and priced
+  99 where it should have priced 293. Two thirds of the EV line was simply
+  the actual result in another colour. Now +372bb of adjustment on hero's
+  hands, and the two lines separate. `query.py --check` fails if the EV line
+  ever equals the actual result again.
+* **The mousewheel outlived the dialog.** `bind_all` is application-wide and
+  ran once per tab, so every tab overwrote the last (only one scrolled) and
+  the binding survived the dialog being destroyed — after which one turn of
+  the wheel raised `TclError: invalid command name ".!filterdialog…!canvas"`.
+  Bound on enter, unbound on leave and on destroy, and `app.py --check` now
+  opens the dialog, closes it, and turns the wheel.
+* **The stats table was unreadable on a wide window.** The first column
+  stretched to absorb every spare pixel, so a stat's name sat at the far
+  left and its number at the far right with a foot of empty table between
+  them. Fixed columns and a spacer that takes the slack.
+
+### Added — "me" in the player list, and a dark title bar
+
+Hero has a screen name on ACR and a different session-scoped one on
+Ignition, so picking a name picked one site's worth of your own hands —
+7,715 of about 11,000 — and silently dropped the rest. The list now opens
+with **me — every site**, which is not a name and becomes `--hero`.
+
+### Fixed — the crash log's own check had started lying
+
+`diag --check` took a byte offset from `st_size` and used it to slice the
+*decoded* text. That works exactly as long as the log is pure ASCII, and it
+stopped being so the moment a filter label with an em-dash in it reached a
+breadcrumb: the slice then began past the start of the new lines, and the
+check reported a worker thread's error as **lost** when it had been written
+perfectly. Caught by the suite on the run after the em-dash arrived.
+
+### Added — `update.py`
+
+The window checks GitHub on every launch, on a worker, and says something
+only when there is something to say. **Update → Update from GitHub now**
+does it on demand.
+
+Fast-forward only: it refuses to merge, refuses to rebase, and refuses
+outright if anything local would have to be reconciled — uncommitted work is
+never touched. It never restarts anything, because Python has already
+imported its modules and reloading them underneath a running window produces
+a program that is half of one version and half of another. And it never
+blocks: no git, no network, no remote is an ordinary answer, not an error.
+
+A packaged .exe cannot replace itself while running, so there it says a
+newer commit exists rather than pretending.
+
+---
+
 ## Two programs stopped sharing a folder
 
 Removed: `walk.py`, `leaks.py`, `poptree.py`, `postflop.py`,

@@ -11,6 +11,7 @@ Three questions, one filter:
 
     --stats     what everybody did in the spot the filter describes
     --hands     which hands those were
+    --range     what the hands that got there actually were
     --results   what the money did in them
     --graph     the four-line results graph, written as an HTML file
 
@@ -43,6 +44,7 @@ from pathlib import Path
 import shlex
 
 import lines
+import strength
 from stats import (BY_KEY, STATS, detectable, difference, fmt, holm,
                    rate, rates as stat_rates, rates_by, wilson)
 
@@ -597,6 +599,96 @@ def _is_value_of(argv, token):
     return i > 0 and argv[i - 1] in OPTIONS
 
 
+def range_of(con, where):
+    """
+    What the range that got here actually holds, and how much of it is air.
+
+    This is the question a frequency cannot answer. "He bets the river 40%"
+    is a number about him; "and 55% of it is a hand that cannot call" is a
+    number about what to do. Hand2Note draws it as the postflop diagram, and
+    it needs nothing this database has not had since `strength.py`: the
+    hands are already named, so a range is a GROUP BY over the filter.
+
+    **It is a range of the hands that were SEEN.** Ignition shows every hand
+    at showdown including the folds, and ACR shows 23% -- so on ACR this
+    describes the hands that got to showdown, which is a stronger set than
+    the range that reached the spot. The number that says so is returned
+    beside the breakdown and is not optional: a diagram of a quarter of a
+    range, presented as the range, is worse than no diagram.
+    """
+    total = con.execute(
+        f"SELECT COUNT(*) FROM decisions WHERE {where}").fetchone()[0]
+    seen = con.execute(
+        f"SELECT COUNT(*) FROM decisions WHERE ({where}) "
+        f"AND made IS NOT NULL").fetchone()[0]
+    counts = dict(con.execute(
+        f"SELECT made, COUNT(*) FROM decisions WHERE ({where}) "
+        f"AND made IS NOT NULL GROUP BY made").fetchall())
+
+    rows = []
+    for name in strength.ORDER:
+        n = counts.get(name, 0)
+        if not n:
+            continue
+        rows.append({"made": name, "n": n,
+                     "pct": 100.0 * n / seen if seen else 0.0,
+                     "weak": name in strength.WEAK})
+    weak = sum(r["n"] for r in rows if r["weak"])
+
+    # Draws are counted separately and deliberately overlap the categories
+    # above: a hand is one made hand and may also be drawing, and adding
+    # "flush draw" to the list of made hands would make the column stop
+    # summing to a hundred while quietly reclassifying every pair that
+    # happens to have one.
+    draws = []
+    for label, sql in (("a flush draw", "fd IS NOT NULL"),
+                       ("a straight draw", "sd IS NOT NULL"),
+                       ("both at once", "fd IS NOT NULL AND sd IS NOT NULL"),
+                       ("weak, but drawing",
+                        f"made IN ({', '.join(q(w) for w in strength.WEAK)}) "
+                        f"AND (fd IS NOT NULL OR sd IS NOT NULL)")):
+        n = con.execute(f"SELECT COUNT(*) FROM decisions WHERE ({where}) "
+                        f"AND made IS NOT NULL AND ({sql})").fetchone()[0]
+        if n:
+            draws.append({"label": label, "n": n,
+                          "pct": 100.0 * n / seen if seen else 0.0})
+
+    return {"rows": rows, "draws": draws, "n": seen, "total": total,
+            "weak": 100.0 * weak / seen if seen else 0.0,
+            "strong": 100.0 * (seen - weak) / seen if seen else 0.0}
+
+
+def show_range(con, where, label, parts=()):
+    """The range breakdown, printed."""
+    out = range_of(con, where)
+    print(f"\nfilter: {label}")
+    print("=" * (len(label) + 8))
+    if not out["n"]:
+        print("no hand in this filter was ever shown, so there is no range "
+              "to break down.")
+        if parts:
+            why = why_empty(con, parts)
+            if why:
+                print(why)
+        return
+    print(f"{out['n']:,} of {out['total']:,} decisions had cards to read "
+          f"({100 * out['n'] / out['total']:.0f}%)\n")
+    for r in out["rows"]:
+        bar = "#" * int(round(r["pct"] / 2))
+        print(f"  {r['made']:14} {r['pct']:5.1f}%  {r['n']:6,}  "
+              f"{'weak' if r['weak'] else '    '}  {bar}")
+    print(f"\n  {'WEAK':14} {out['weak']:5.1f}%   -- hands that cannot call")
+    print(f"  {'STRONG':14} {out['strong']:5.1f}%")
+    if out["draws"]:
+        print("\n  and, overlapping the above:")
+        for d in out["draws"]:
+            print(f"    {d['label']:20} {d['pct']:5.1f}%  {d['n']:6,}")
+    print("\nThis is the range that was SEEN. Ignition shows every hand "
+          "including folds; ACR shows 23%,")
+    print("so an ACR-heavy filter here describes the hands that reached "
+          "showdown, which is the stronger half.")
+
+
 def show_stats(con, where, label, parts=()):
     """Every stat that has anything to say under this filter."""
     print(f"\nfilter: {label}")
@@ -678,9 +770,19 @@ def adjusted(con, pairs):
         "ORDER BY s.played_at, s.hand_id").fetchall()
 
     # Which hands had an all-in with cards to come, and on what street.
+    #
+    # The street of the LAST ALL-IN, not of an all-in that happens to be the
+    # hand's last action. Those are different sets and the difference is most
+    # of them: a shove is nearly always called, and the call is what ends the
+    # hand, so requiring the all-in to be last found 148 hands where 681 have
+    # one. Of the pre-river hands with two known hands still live, it priced
+    # 99 and should have priced 293 -- so two thirds of the all-in EV line
+    # was simply the actual result, and on this database the two came out
+    # equal to the pound and the green line vanished under the yellow one.
     allin_street = dict(con.execute(
         "SELECT hand_id, street FROM decisions d WHERE allin = 1 "
-        "AND d.n = (SELECT MAX(n) FROM decisions x WHERE x.hand_id = d.hand_id)"
+        "AND d.n = (SELECT MAX(n) FROM decisions x "
+        "           WHERE x.hand_id = d.hand_id AND x.allin = 1)"
     ).fetchall())
 
     out, adjusted_n, skipped = [], 0, 0
@@ -1307,6 +1409,34 @@ def check(db_path=DB):
                 fn(con, empty, "empty")
         except Exception as e:
             fails.append(f"--{mode} on an empty filter: {e}")
+    # The all-in EV line has to actually adjust something. It looked right
+    # for weeks while doing almost nothing: the query that found all-in
+    # hands required the all-in to be the hand's LAST action, and a shove is
+    # nearly always called, so it found 148 hands out of 681. The line came
+    # out equal to the actual result to the pound, and the green line on the
+    # graph disappeared underneath the yellow one -- reported as "why is
+    # there no green line".
+    pairs = matching_seats(con, build(["--hero"])[0])
+    if pairs:
+        select_into(con, pairs)
+        rows, priced, _skipped = adjusted(con, pairs)
+        gap = sum(r[3] for r in rows) - sum(r[1] for r in rows)
+        qualify = con.execute(
+            "SELECT COUNT(*) FROM (SELECT d.hand_id FROM decisions d "
+            "WHERE d.allin = 1 AND d.n = (SELECT MAX(n) FROM decisions x "
+            "  WHERE x.hand_id = d.hand_id AND x.allin = 1) "
+            "AND d.street <> 'river' AND (SELECT COUNT(*) FROM spots s "
+            "  WHERE s.hand_id = d.hand_id AND s.folded_on IS NULL "
+            "  AND s.cards IS NOT NULL) = 2 GROUP BY d.hand_id)").fetchone()[0]
+        print(f"all-in EV adjusts something  {priced} hands priced of "
+              f"{qualify} that can be, gap {gap:+,.0f} bb")
+        if not priced:
+            fails.append("the all-in EV line prices nothing -- it is just "
+                         "the actual result wearing another colour")
+        elif abs(gap) < 1:
+            fails.append("the all-in EV line is identical to the actual "
+                         "result, which is what a broken adjustment looks like")
+
     print(f"modes survive an empty result "
           f"{'yes' if not any('empty filter' in f for f in fails) else 'NO'}")
 
@@ -1331,7 +1461,7 @@ def main(argv):
     if "--check" in argv:
         return 0 if check() else 1
     mode = "--stats"
-    for m in ("--stats", "--hands", "--results", "--graph"):
+    for m in ("--stats", "--hands", "--results", "--graph", "--range"):
         if m in argv:
             mode = m
             argv = [a for a in argv if a != m]
@@ -1374,6 +1504,8 @@ def main(argv):
         show_graph(con, where, label, opt("--out", "graph.html"))
     elif mode == "--hands":
         show_hands(con, where, label, parts=_parts)
+    elif mode == "--range":
+        show_range(con, where, label, _parts)
     elif mode == "--results":
         if dim:
             show_results_by(con, where, label, dim)

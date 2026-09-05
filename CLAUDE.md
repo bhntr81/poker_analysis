@@ -128,6 +128,17 @@ Facts that stay true, and that have each been got wrong at least once:
   thing on the turn (the board is now a card off one) and another on the
   river (that card came). `--board` remains the flop, which arrives all at
   once.
+- **A range breakdown is of the hands that were SEEN.** Ignition shows
+  every hand including folds; ACR shows 23%. `query.range_of` returns the
+  seen-fraction beside the breakdown and every view prints it, because a
+  quarter of a range presented as the range is worse than no range at all.
+- **Where "weak" stops is opinion, and lives in one list.** `strength.WEAK`
+  draws the line under middle pair, on the grounds that a middle pair calls
+  a river bet and a bottom pair does not. Disagreeing with it should be a
+  line changed, not an argument.
+- **Nothing draws on the river.** `flush_draw` always knew; `straight_draw`
+  did not, and a river range came back a third "straight draw" — drawing to
+  a card that was never coming.
 - **A draw has to be the player's own.** Four hearts on the board is not a
   flush draw, it is a board everybody shares; a pair entirely on the board
   is `board pair` and not a pair the player holds. Every test in

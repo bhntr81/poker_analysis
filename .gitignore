@@ -13,3 +13,6 @@ hands.db.bak*
 
 # runtime log
 poker_analysis.log*
+
+# screenshots taken while working on the window
+*.png

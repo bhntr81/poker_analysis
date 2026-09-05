@@ -18,8 +18,9 @@ position" means. They would not stay agreeing if any of them assembled its
 own WHERE clause, and the disagreement would be silent -- so `--check`
 asserts the equality rather than trusting it.
 
-    python app.py           open it
-    python app.py --debug   also print the log to the terminal
+    python app.py             open it
+    python app.py --no-update start without checking github
+    python app.py --debug     also print the log to the terminal
     python app.py --check   the window and the command line agree
 
 Anything that goes wrong is written to `poker_analysis.log` beside the
@@ -45,6 +46,7 @@ import sqlite3
 import diag
 import importer
 import query
+import update
 from stats import BY_KEY, STATS
 
 # Packaged as a single executable, PyInstaller unpacks the code into a
@@ -63,6 +65,11 @@ INK, DIM, ACCENT = "#d8dbe0", "#8b929c", "#4c9aff"
 GOOD, BAD, WARN = "#22a35a", "#d1443c", "#b8892a"
 LINE = {"total": "#22a35a", "showdown": "#2f7fd6",
         "nonshowdown": "#d1443c", "allin_ev": "#e0b020"}
+# Painted in this order, so the headline is the one on top. Drawing them in
+# the order above put the all-in EV line over the total, and where the two
+# agree -- which they do exactly when nothing could be adjusted -- the green
+# line was invisible and looked missing. It was underneath.
+DRAW_ORDER = ("allin_ev", "nonshowdown", "showdown", "total")
 
 # The fonts a machine actually has. "Segoe UI" and "Consolas" ship with
 # Windows and with nothing else; asking Tk for a font that is not installed
@@ -70,6 +77,12 @@ LINE = {"total": "#22a35a", "showdown": "#2f7fd6",
 # is a bitmap face from the eighties. Chosen once, from what the system
 # reports, so the same window is legible on all three.
 UI, MONO = "Segoe UI", "Consolas"
+
+# The first entry in the player list. Hero has a screen name on ACR and a
+# different session-scoped one on Ignition, so picking a name picks one
+# site's worth of your own hands and silently drops the rest -- 7,715 of
+# about 11,000. This selects all of them, on every site.
+HERO_CHOICE = "me — every site"
 
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
 STREETS = ("preflop", "flop", "turn", "river")
@@ -140,6 +153,36 @@ def open_folder(path):
         subprocess.run([opener, str(path)], check=False)
 
 
+def dark_titlebar(window):
+    """
+    The frame around the window, dark as well.
+
+    Windows draws the title bar itself and ignores everything Tk says about
+    colour, so a carefully dark window arrives wearing a white hat. One DWM
+    attribute fixes it. The call does nothing on other platforms and nothing
+    on Windows builds too old to know the attribute, which is why it is not
+    guarded by a version test -- and it is wrapped, because a light title
+    bar is not worth a crash.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        on = ctypes.c_int(1)
+        for attribute in (20, 19):      # 20 since Windows 10 2004, 19 before
+            ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                hwnd, attribute, ctypes.byref(on), ctypes.sizeof(on))
+        # Windows paints the frame once and does not repaint it because an
+        # attribute changed, so the bar stays white until something makes it
+        # redraw. Hiding and showing the window is what does that.
+        window.withdraw()
+        window.deiconify()
+    except Exception:
+        pass
+
+
 def dark(root):
     """Make Tk dark, which it does not want to be."""
     pick_fonts()
@@ -203,6 +246,26 @@ def dark(root):
     return style
 
 
+def _coincident(series, slack=0.5):
+    """
+    Which lines are sitting exactly on top of which, and under what.
+
+    Drawn last wins, so a line that agrees with one painted after it is
+    invisible. Reported rather than nudged apart: two results that are equal
+    are equal, and moving one to prove it exists would be a lie drawn to
+    look like data.
+    """
+    out = {}
+    for i, key in enumerate(DRAW_ORDER):
+        for later in DRAW_ORDER[i + 1:]:
+            a, b = series.get(key), series.get(later)
+            if a and b and len(a) == len(b) and all(
+                    abs(x - y) <= slack for x, y in zip(a, b)):
+                out[key] = later
+                break
+    return out
+
+
 class Progress(tk.Toplevel):
     """
     A window that says what the import is doing while it does it.
@@ -255,6 +318,12 @@ class ImportMixin:
         m.add_command(label="Merge another database…", command=self.import_db)
         bar.add_cascade(label="Import", menu=m)
 
+        u = tk.Menu(bar, tearoff=0, background=PANEL, foreground=INK,
+                    activebackground=ACCENT, activeforeground=BG)
+        u.add_command(label="Update from GitHub now", command=self.update_now)
+        u.add_command(label="What version is this?", command=self.show_version)
+        bar.add_cascade(label="Update", menu=u)
+
         h = tk.Menu(bar, tearoff=0, background=PANEL, foreground=INK,
                     activebackground=ACCENT, activeforeground=BG)
         h.add_command(label="Show the log…", command=self.show_log)
@@ -262,6 +331,37 @@ class ImportMixin:
                       command=lambda: open_folder(diag.LOG.parent))
         bar.add_cascade(label="Help", menu=h)
         root.configure(menu=bar)
+
+    def update_now(self):
+        """
+        Pull, and say plainly what happened.
+
+        On a worker, because git talks to the network and a menu command
+        that freezes the window for twenty seconds looks like a crash. The
+        answer arrives in a box rather than the banner, because this one was
+        asked for and an answer that has to be hunted for is not an answer.
+        """
+        def work():
+            try:
+                state, message = update.update()
+            except Exception:
+                diag._report("update from the menu", *sys.exc_info()[1:])
+                state, message = "skipped", "the update failed -- see the log"
+            diag.event("update requested", state=state, detail=message)
+            self.after(0, lambda: messagebox.showinfo(
+                {"updated": "Updated", "current": "Already up to date",
+                 "blocked": "Not updated", "available": "A newer version exists",
+                 "skipped": "Could not check"}[state], message))
+        threading.Thread(target=work, daemon=True).start()
+
+    def show_version(self):
+        where = "a packaged build" if getattr(sys, "frozen", False) else "source"
+        messagebox.showinfo(
+            "poker_analysis",
+            f"Running from {where}.\n\n"
+            f"Commit: {update.head() or 'unknown'}\n"
+            f"Repository: {update.remote_repo()}\n\n"
+            f"The database is at:\n{DB}")
 
     def show_log(self):
         win = tk.Toplevel(self.master)
@@ -385,7 +485,7 @@ class ImportMixin:
 
 
 class App(ImportMixin, ttk.Frame):
-    def __init__(self, master):
+    def __init__(self, master, check_updates=False):
         super().__init__(master)
         self.pack(fill="both", expand=True)
         self.con = sqlite3.connect(DB, check_same_thread=False)
@@ -408,9 +508,45 @@ class App(ImportMixin, ttk.Frame):
 
         self.results = queue.Queue()
         self.pending = 0
+        self.news = None
         self._build()
         self.after(80, self._drain)
         self.refresh()
+        # On a worker, because it talks to git and to the network and the
+        # window must open at the same speed whether either answers. Every
+        # way it can fail comes back as a sentence rather than an exception.
+        if check_updates:
+            threading.Thread(target=self._look_for_update,
+                             daemon=True).start()
+            self.after(400, self._say_update)
+
+    def _look_for_update(self):
+        try:
+            self.news = update.update()
+        except Exception:
+            diag._report("update check", *sys.exc_info()[1:])
+            self.news = ("skipped", "the update check itself failed -- "
+                                    "see the log")
+
+    def _say_update(self):
+        """
+        Say something only when there is something to say.
+
+        "Up to date" is not news and a line that says it every launch is a
+        line people stop reading, which is how the one launch that says
+        something else goes unnoticed.
+        """
+        if self.news is None:
+            self.after(400, self._say_update)
+            return
+        state, message = self.news
+        if state in ("current", "skipped"):
+            diag.event("update", state=state, detail=message)
+            return
+        colour = {"updated": GOOD, "blocked": WARN, "available": ACCENT}[state]
+        self.banner.configure(text=message, foreground=colour)
+        self.banner.pack(side="left", padx=12)
+        diag.event("update", state=state, detail=message)
 
     # ---- layout -------------------------------------------------------
     def _build(self):
@@ -420,6 +556,8 @@ class App(ImportMixin, ttk.Frame):
                   style="Title.TLabel").pack(side="left")
         self.sub = ttk.Label(head, text="", style="Dim.TLabel")
         self.sub.pack(side="left", padx=12)
+        # Packed only when it has something to report -- see `_say_update`.
+        self.banner = ttk.Label(head, text="", style="Dim.TLabel")
         self.status = ttk.Label(head, text="", style="Dim.TLabel")
         self.status.pack(side="right")
 
@@ -471,12 +609,12 @@ class App(ImportMixin, ttk.Frame):
         self.filter_line.pack(anchor="w", padx=14, pady=(0, 8))
 
         self.tabs = {}
-        for name in ("stats", "report", "results", "graph", "hands"):
+        for name in ("stats", "range", "report", "results", "graph", "hands"):
             frame = ttk.Frame(self.nb)
             self.nb.add(frame, text=name)
             self.tabs[name] = frame
         self.tree = {}
-        for name in ("stats", "report", "results", "hands"):
+        for name in ("stats", "range", "report", "results", "hands"):
             self.tree[name] = self._table(self.tabs[name])
         self.canvas = tk.Canvas(self.tabs["graph"], bg=BG, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
@@ -531,8 +669,15 @@ class App(ImportMixin, ttk.Frame):
                            ("pre", "--pre"), ("flop", "--flop"),
                            ("turn", "--turn"), ("river", "--river")):
             v = self.vals[name].get().strip()
-            if v and not v.startswith("any "):
-                argv += [flag, v]
+            if not v or v.startswith("any "):
+                continue
+            if name == "player" and v == HERO_CHOICE:
+                # Not a name, so not `--player`: hero is a different name on
+                # each site and none of them covers the others.
+                if "--hero" not in argv:
+                    argv.append("--hero")
+                continue
+            argv += [flag, v]
         return argv
 
 
@@ -579,6 +724,8 @@ class App(ImportMixin, ttk.Frame):
             out = {"view": view}
             if view == "stats":
                 out["n"], out["rows"] = query.stats_of(con, where)
+            elif view == "range":
+                out.update(query.range_of(con, where))
             elif view == "report":
                 expr, order = query.DIMENSIONS[dim]
                 cols = query.DEFAULT_COLUMNS
@@ -678,14 +825,29 @@ class App(ImportMixin, ttk.Frame):
         getattr(self, "_render_" + view)(tv, out)
 
     def _cols(self, tv, cols, widths, anchors=None):
-        tv.configure(columns=cols)
+        """
+        Fixed columns, and a spacer that takes whatever is left over.
+
+        The first column used to absorb every spare pixel. On a wide window
+        that put a stat's name against the left edge and its number against
+        the right, with a foot of empty table between them and the heading
+        floating in the middle of the gap -- so reading a row meant tracking
+        across nothing. The numbers now sit where the names end, and the
+        window gets wider by growing the empty part on the right, which is
+        the part nobody needs to read.
+        """
+        anchors = anchors or {}
+        tv.configure(columns=tuple(cols) + ("_pad",))
         for i, c in enumerate(cols):
-            tv.heading(c, text=c)
-            tv.column(c, width=widths[i], anchor=(anchors or {}).get(c, "e"),
-                      stretch=(i == 0))
+            side = anchors.get(c, "e")
+            tv.heading(c, text=c, anchor=side)
+            tv.column(c, width=widths[i], minwidth=widths[i],
+                      anchor=side, stretch=False)
+        tv.heading("_pad", text="")
+        tv.column("_pad", width=1, minwidth=1, anchor="w", stretch=True)
 
     def _render_stats(self, tv, out):
-        self._cols(tv, ("stat", "value", "±", "n"), (300, 90, 70, 110),
+        self._cols(tv, ("stat", "value", "±", "n"), (230, 90, 70, 100),
                    {"stat": "w"})
         group = None
         for r in out["rows"]:
@@ -695,7 +857,52 @@ class App(ImportMixin, ttk.Frame):
                           tags=("group",))
             tv.insert("", "end", tags=("thin",) if r["n"] < 30 else (),
                       values=(r["label"], f"{r['pct']:.1f}%",
-                              f"±{r['band']:.0f}", f"{r['n']:,}"))
+                              # A band under a point still has a size, and
+                              # "±0" reads as a number that failed to print.
+                              f"±{r['band']:.1f}" if r["band"] < 1
+                              else f"±{r['band']:.0f}",
+                              f"{r['n']:,}"))
+
+    def _render_range(self, tv, out):
+        """
+        What the hands that got here actually were, and how much of it is air.
+
+        The bar is drawn out of block characters rather than as a canvas.
+        This is a table, the numbers beside it are the answer, and a bar is
+        there to be glanced at down the column -- a drawing would need its
+        own widget, its own resize handling and its own theme, to say the
+        same thing slightly better.
+        """
+        self._cols(tv, ("hand", "%", "n", "", "share"),
+                   (150, 70, 80, 60, 260),
+                   {"hand": "w", "": "w", "share": "w"})
+        if not out["n"]:
+            tv.insert("", "end", tags=("note",), values=(
+                "no hand under this filter was ever shown", "", "", "", ""))
+            return
+        for r in out["rows"]:
+            tv.insert("", "end", tags=("neg",) if r["weak"] else (),
+                      values=(r["made"], f"{r['pct']:.1f}%", f"{r['n']:,}",
+                              "weak" if r["weak"] else "",
+                              "█" * int(round(r["pct"] / 2))))
+        tv.insert("", "end", values=("", "", "", "", ""))
+        tv.insert("", "end", tags=("neg",), values=(
+            "WEAK", f"{out['weak']:.1f}%", "", "cannot call", ""))
+        tv.insert("", "end", tags=("pos",), values=(
+            "STRONG", f"{out['strong']:.1f}%", "", "", ""))
+        if out["draws"]:
+            tv.insert("", "end", values=("", "", "", "", ""))
+            tv.insert("", "end", tags=("group",),
+                      values=("OVERLAPPING THE ABOVE", "", "", "", ""))
+            for d in out["draws"]:
+                tv.insert("", "end", values=(
+                    d["label"], f"{d['pct']:.1f}%", f"{d['n']:,}", "", ""))
+        tv.insert("", "end", values=("", "", "", "", ""))
+        tv.insert("", "end", tags=("note",), values=(
+            f"{out['n']:,} of {out['total']:,} decisions had cards to read "
+            f"({100 * out['n'] / out['total']:.0f}%) — this is the range that "
+            f"was SEEN, and on ACR that is the showdown half",
+            "", "", "", ""))
 
     def _render_report(self, tv, out):
         cols = ["by"] + [BY_KEY[c].label for c in out["cols"]] + ["n"]
@@ -795,17 +1002,29 @@ class App(ImportMixin, ttk.Frame):
             c.create_text(L - 8, y(v), text=f"{v:,.0f}", fill=DIM,
                           anchor="e", font=(UI, 8))
         c.create_line(L, y(0), w - R, y(0), fill=DIM, dash=(3, 3))
-        for i, (key, colour) in enumerate(LINE.items()):
+        for key in DRAW_ORDER:
             pts = []
             for j, v in enumerate(s[key]):
                 pts += [x(j), y(v)]
             if len(pts) >= 4:
-                c.create_line(*pts, fill=colour, width=2, smooth=False)
+                c.create_line(*pts, fill=LINE[key], width=2, smooth=False)
+
+        # The legend keeps its own order, and says when a line cannot be
+        # seen because another is sitting exactly on it. A line that is
+        # missing and a line that is hidden look identical on the canvas and
+        # are completely different facts.
+        covered = _coincident(s)
+        for i, (key, colour) in enumerate(LINE.items()):
             ly = T + 16 + i * 30
             c.create_line(w - R + 8, ly, w - R + 30, ly, fill=colour, width=3)
+            note = covered.get(key)
             c.create_text(w - R + 38, ly, anchor="w", fill=INK,
                           font=(UI, 9),
                           text=f"{key.replace('_', ' ')}  {s[key][-1]:+,.0f}")
+            if note:
+                c.create_text(w - R + 38, ly + 12, anchor="w", fill=DIM,
+                              font=(UI, 8),
+                              text=f"under {note.replace('_', ' ')}")
         c.create_text((L + w - R) / 2, h - 14, fill=DIM,
                       font=(UI, 8), text=s.get("_note", ""))
 
@@ -818,7 +1037,7 @@ class App(ImportMixin, ttk.Frame):
             "SELECT DISTINCT site FROM decisions ORDER BY 1")
         self.options["stakes"] = [f"{v:g}" for v in one(
             "SELECT DISTINCT bb FROM decisions ORDER BY 1")]
-        self.options["players"] = one(
+        self.options["players"] = [HERO_CHOICE] + one(
             "SELECT player FROM decisions WHERE player IS NOT NULL "
             "GROUP BY player HAVING COUNT(DISTINCT hand_id) >= 100 "
             "ORDER BY COUNT(DISTINCT hand_id) DESC LIMIT 300")
@@ -911,8 +1130,28 @@ class FilterDialog(tk.Toplevel):
         canvas.configure(yscrollcommand=bar.set)
         canvas.pack(side="left", fill="both", expand=True)
         bar.pack(side="right", fill="y")
-        canvas.bind_all("<MouseWheel>",
-                        lambda e: canvas.yview_scroll(-e.delta // 120, "units"))
+        # `bind_all` puts the binding on the whole application, and this runs
+        # once per tab -- so every tab overwrote the last, only one of them
+        # scrolled, and the binding outlived the dialog. Closing the filter
+        # and then touching the wheel raised
+        #     TclError: invalid command name ".!filterdialog...!canvas"
+        # against a canvas that no longer existed. It is still `bind_all`,
+        # because on Windows the wheel goes to the focused widget rather than
+        # the one under the pointer, but it is now put on while the pointer
+        # is over this canvas and taken off again when it leaves or the tab
+        # is destroyed.
+        def wheel(event):
+            canvas.yview_scroll(-event.delta // 120, "units")
+
+        def grab(_e):
+            canvas.bind_all("<MouseWheel>", wheel)
+
+        def release(_e):
+            canvas.unbind_all("<MouseWheel>")
+
+        canvas.bind("<Enter>", grab)
+        canvas.bind("<Leave>", release)
+        outer.bind("<Destroy>", release)
         return inner
 
     def _heading(self, parent, text):
@@ -1341,6 +1580,10 @@ def check(db_path=DB):
         ({"flags": ["--hero"], "vals": {"flop": "XBC", "turn": "XX"}},
          ["--hero", "--flop", "XBC", "--turn", "XX"]),
         ({"flags": [], "vals": {"node": "*/xbm"}}, ["--node", "*/xbm"]),
+        # "me" in the player list is the one entry there that is not a name.
+        # Picking a screen name would select one site's worth of hero's
+        # hands and quietly drop the rest.
+        ({"flags": [], "vals": {"player": HERO_CHOICE}}, ["--hero"]),
     ]
     for state, argv in cases:
         for f, var in app.flags.items():
@@ -1361,15 +1604,18 @@ def check(db_path=DB):
     # that matches nothing -- which is one click away at all times.
     con = sqlite3.connect(db_path)
     broke = []
-    for view in ("stats", "report", "results", "hands", "graph"):
-        for argv in ([], ["--ip", "--street", "preflop"]):
+    views = ("stats", "range", "report", "results", "hands", "graph")
+    filters = ([], ["--ip", "--street", "preflop"])
+    for view in views:
+        for argv in filters:
             where, _l, parts = query.build(argv)
             try:
                 app._work(app.pending, view, where, _l, parts, "position")
                 app.results.get_nowait()
             except Exception as e:
                 broke.append(f"{view}: {type(e).__name__}: {e}")
-    print(f"every view answers             {10 - len(broke)}/10")
+    tried = len(views) * len(filters)
+    print(f"every view answers             {tried - len(broke)}/{tried}")
     for b in broke:
         print(f"    {b}")
     fails += broke
@@ -1411,6 +1657,29 @@ def check(db_path=DB):
         fails.append("the dialog offers fewer filters than are defined")
     dialog.destroy()
 
+    # The wheel must not outlive the window it scrolls. Each tab of the
+    # dialog bound <MouseWheel> for the whole application, so every tab
+    # overwrote the last and the binding survived the dialog being closed --
+    # after which one turn of the wheel raised
+    #     TclError: invalid command name ".!filterdialog...!canvas"
+    # against a canvas that no longer existed. Reported from the log, which
+    # is what the log is for. Tested by opening the dialog, shutting it, and
+    # turning the wheel.
+    gone = FilterDialog(app)
+    gone.update_idletasks()
+    gone.cancel()
+    root.update()
+    stale = None
+    try:
+        root.event_generate("<MouseWheel>", delta=-120)
+        root.update()
+    except tk.TclError as e:
+        stale = str(e)
+    print(f"the wheel outlives no window  "
+          f"{'yes' if not stale else 'NO -- ' + stale[:60]}")
+    if stale:
+        fails.append("a mousewheel binding survived the dialog that made it")
+
     theme = ttk.Style(root).theme_use()
     print(f"theme in use                   {theme}")
     if theme != "clam":
@@ -1435,8 +1704,11 @@ def main(argv):
     root.geometry("1360x880")
     root.minsize(1050, 640)
     dark(root)
+    dark_titlebar(root)
     diag.watch_tk(root)
-    app = App(root)
+    # Checked on every launch, on a worker, and never applied to a running
+    # program: see `update.py`. `--no-update` turns it off entirely.
+    app = App(root, check_updates="--no-update" not in argv)
     app._menu(root)
     app.load_options()
     root.mainloop()

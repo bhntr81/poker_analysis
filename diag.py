@@ -167,7 +167,14 @@ def check():
     mb.showerror = real
     root.destroy()
 
-    text = LOG.read_text(encoding="utf-8", errors="replace")[before:]
+    # Sliced as BYTES and decoded afterwards, because `before` came from
+    # `st_size` and that is bytes. Slicing the decoded text by a byte offset
+    # works only while the log is pure ASCII, and it stopped being so the
+    # moment a filter label with an em-dash in it reached a breadcrumb: the
+    # slice then started past the beginning of the new lines and this check
+    # reported a worker thread's error as lost when it had been written
+    # correctly.
+    text = LOG.read_bytes()[before:].decode("utf-8", errors="replace")
     for where, needle in (("worker thread", f"{marker}-thread"),
                           ("tk callback", f"{marker}-tk")):
         ok = needle in text

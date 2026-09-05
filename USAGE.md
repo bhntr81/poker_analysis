@@ -166,6 +166,39 @@ describe a single card landing on a board that was already there.
 
 ---
 
+### What the range actually held
+
+```bash
+python query.py --pool --street river --facing bet --range
+python query.py --pool --street flop --facing bet --range
+```
+
+A frequency is a number about somebody; a range is a number about what to
+do. "He bets the river 40%" tells you nothing until you know how much of
+that 40% is a hand that cannot call.
+
+```
+  two pair        30.9%     264        ###############
+  middle pair     16.9%     144        ########
+  board pair      12.4%     106  weak  ######
+  high card       10.4%      89  weak  #####
+
+  WEAK            25.4%   -- hands that cannot call
+  STRONG          74.6%
+```
+
+The line between weak and strong is drawn under **middle pair**, and it is
+one list in `strength.WEAK` precisely so that disagreeing with it is a line
+changed rather than an argument.
+
+**It is the range that was *seen*.** Ignition shows every hand at showdown
+including the folds; ACR shows 23%. So on an ACR-heavy filter this describes
+the hands that reached showdown, which is the stronger half of what was
+really there. The header says what fraction of the selection had cards to
+read, every time.
+
+---
+
 ### Filtering by what the hand is
 
 ```bash
@@ -418,6 +451,35 @@ The solver modules that used to be documented here — `poptree.py`,
 were removed on 5 Sep 2026. They priced play against cached GTO Wizard
 solutions, which is answering "what is correct" and is a different program.
 `git checkout 4927a11 -- walk.py gtowizard/` brings any of them back.
+
+---
+
+## Keeping it up to date
+
+The window checks GitHub on every launch, on a worker thread, and says
+something only when there is something to say. **Update → Update from
+GitHub now** does it on demand; **Update → What version is this?** says
+which commit is running and where the database is.
+
+```bash
+python update.py            check, and fast-forward if there is one
+python app.py --no-update   start without checking
+```
+
+Three rules it does not bend:
+
+* **Fast-forward only.** It refuses to merge, refuses to rebase, and refuses
+  outright if anything local would have to be reconciled. Uncommitted work
+  is never touched — the update simply does not happen, and says why.
+* **It never restarts anything.** Python has already imported its modules by
+  the time the pull finishes, so new code on disk is not new code in memory.
+  The window says an update arrived; a restart uses it.
+* **It never blocks.** No git, no network, no remote, a detached head — each
+  is an ordinary answer rather than an error. Being unable to check is not a
+  problem with the program.
+
+A packaged .exe cannot replace itself while running, so there it tells you a
+newer commit exists rather than pretending to update.
 
 ---
 
