@@ -54,6 +54,7 @@ acr.py    load ACR hand histories        --check
 spots.py        one row per player per hand          --check
 decisions.py    one row per decision, 50 columns     --check
 lines.py        how the betting went, as a string    --check
+strength.py     what the hand is against the board    --check
 players.py      who each player is: reg, fish, unknown  --check
         v
 stats.py        35 stats, defined declaratively      --check

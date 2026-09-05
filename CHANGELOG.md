@@ -8,6 +8,80 @@ Newest first.
 
 ---
 
+## What the hand actually is, once the flop is out
+
+### Added — `strength.py`
+
+`combo` says AKs, which is everything before the flop and almost nothing
+after it. Every postflop question a tracker is really asked — how the pool
+plays top pair with a weak kicker out of position, how often a gutshot
+continues on a paired board, whether anybody folds a set — needs the hand
+named against the board, and nothing here had ever named it.
+
+Four columns rather than one:
+
+| | |
+|---|---|
+| `made` | top pair, set, boat, board pair … what the hand is now |
+| `kicker` | top, good, weak — only where a pair uses a hole card |
+| `fd` | nut, second, weak, backdoor |
+| `sd` | oesd, double gutshot, gutshot |
+
+Four, because a combo draw is not a fourteenth category — it is a flush draw
+and a straight draw at once, and "pair plus a flush draw" is `made` and `fd`
+together. One column per independent fact keeps what can be asked
+multiplicative rather than a list of the combinations somebody thought of in
+advance.
+
+The evaluator already existed: `equity.best5` ranks five cards out of seven
+and is checked against eleven known orderings. This is classification, not
+evaluation.
+
+### A draw has to be the player's own
+
+Four hearts on the board is not a flush draw, it is a board everybody
+shares. A pair entirely on the board is `board pair` and not a pair the
+player holds — without that distinction every hand on a paired board counts
+as having hit it. Every test requires a hole card to be part of the four
+cards, or of the run of ranks.
+
+And a made hand does not also carry the draw it has already made. A straight
+that could improve to a better straight is a straight; reporting the redraw
+beside it would put made hands into the draw filters, so "how does the pool
+play a gutshot" would include every hand that already has the straight.
+
+### Checked two ways, and the second one is independent
+
+Twenty-seven hands worked out by hand, all passing — a classifier is a pile
+of special cases and every one of them looks right until the hand it gets
+wrong turns up. Two of the twenty-seven were my expectations being wrong
+rather than the code: two in the hand and one on the board is a **set**
+however the board is paired, and an ace on a 2-3-4 flop is a real wheel
+gutshot.
+
+Then the showdown ladder, which these labels never saw — they were derived
+without looking at who won:
+
+| | won at showdown | | | won at showdown |
+|---|---|---|---|---|
+| high card | 14.0% | | trips | 64.8% |
+| board pair | 21.9% | | set | 79.0% |
+| weak pair | 23.7% | | straight | 80.5% |
+| middle pair | 48.0% | | flush | 77.6% |
+| top pair | 60.9% | | boat | 86.2% |
+| two pair | 56.4% | | | |
+
+Ten of ten steps rise. Nothing in the code enforces that.
+
+### Coverage
+
+20,465 postflop decisions out of 94,017 — every Ignition hand including the
+ones that folded, and 23% of ACR's. The columns are NULL elsewhere, and
+`why_empty` now says so, because an empty table under `--made set` would
+otherwise read as though nobody ever flopped one.
+
+---
+
 ## Who is playing, which every number here had been averaging over
 
 ### Added — `players.py`, a row per player instead of a row per hand

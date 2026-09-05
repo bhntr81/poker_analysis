@@ -74,6 +74,14 @@ UI, MONO = "Segoe UI", "Consolas"
 POSITIONS = ("UTG", "HJ", "CO", "BTN", "SB", "BB")
 STREETS = ("preflop", "flop", "turn", "river")
 POT_TYPES = ("unopened", "limped", "raised", "3bet", "4bet")
+# What the hand became. Ordered as they beat each other, because a list of
+# them sorted alphabetically is a list nobody can read down.
+MADE = ("high card", "board pair", "weak pair", "under pair", "middle pair",
+        "top pair", "overpair", "two pair", "trips", "set", "straight",
+        "flush", "boat", "quads", "straight flush")
+KICKERS = ("top", "good", "weak")
+FLUSH_DRAWS = ("nut", "second", "weak", "backdoor")
+STRAIGHT_DRAWS = ("oesd", "double gutshot", "gutshot")
 # Who the other seat is. "The big blind against a button open" is the shape
 # most real questions have, and it needs both halves of the matchup named.
 VS_SIDE = [("--vs-hero", "vs me"), ("--vs-pool", "vs the pool")]
@@ -384,7 +392,9 @@ class App(ImportMixin, ttk.Frame):
         # drawing the rail, so deleting the rail silently emptied the filter.
         self.flags = {f: tk.BooleanVar() for f in query.SWITCHES}
         self.multi = {"pos": set(), "vs": set(), "street": set(),
-                      "pot": set(), "board": set(), "quick": set()}
+                      "pot": set(), "board": set(), "quick": set(),
+                      "made": set(), "kicker": set(), "fd": set(),
+                      "sd": set()}
         # The filter's values live here rather than on the widgets, because
         # the widgets belong to a dialog that is destroyed every time it is
         # closed and the filter is not.
@@ -504,7 +514,9 @@ class App(ImportMixin, ttk.Frame):
         argv = [fl for fl, v in self.flags.items() if v.get()]
         for group, flag in (("pos", "--pos"), ("vs", "--vs"),
                             ("street", "--street"), ("pot", "--pot"),
-                            ("board", "--board"), ("quick", "--quick")):
+                            ("board", "--board"), ("quick", "--quick"),
+                            ("made", "--made"), ("kicker", "--kicker"),
+                            ("fd", "--fd"), ("sd", "--sd")):
             if self.multi.get(group):
                 argv += [flag, ",".join(sorted(self.multi[group]))]
         for name, flag in (("site", "--site"), ("stake", "--stake"),
@@ -857,6 +869,7 @@ class FilterDialog(tk.Toplevel):
         self._quick_tab(nb)
         self._positions_tab(nb)
         self._actions_tab(nb)
+        self._cards_tab(nb)
         self._lines_tab(nb)
         self._general_tab(nb)
 
@@ -1040,6 +1053,44 @@ class FilterDialog(tk.Toplevel):
         self._grid(page, [(lambda parent, v=v: self._pick(
             parent, v, *self._set_item("board", v)))
             for v in query.BOARDS])
+
+    def _cards_tab(self, nb):
+        """
+        What the hand is, which only exists where the cards were shown.
+
+        Three quarters of decisions have no cards to name a hand from -- all
+        of Ignition's are known and 23% of ACR's -- so everything on this tab
+        narrows hard, and the note says so before an empty table does.
+        """
+        page = self._page(nb, "Cards")
+        self._heading(page, "what the hand became")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("made", v))) for v in MADE])
+        self._heading(page, "kicker, where a pair uses one")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("kicker", v))) for v in KICKERS])
+        self._heading(page, "flush draw")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("fd", v))) for v in FLUSH_DRAWS])
+        self._heading(page, "straight draw")
+        self._grid(page, [(lambda parent, v=v: self._pick(
+            parent, v, *self._set_item("sd", v))) for v in STRAIGHT_DRAWS])
+        self._heading(page, "either, or both at once")
+        self._grid(page, [(lambda parent, f=f, t=t: self._pick(
+            parent, t, *self._flag_item(f)))
+            for f, t in (("--drawing", "has a draw"),
+                         ("--combo-draw", "a flush draw and a straight draw"),
+                         ("--shown", "the cards are known"))])
+        ttk.Label(page, style="Dim.TLabel", wraplength=980, justify="left",
+                  text="Every filter here needs the cards, and the cards are "
+                       "known for 20,465 postflop decisions out of 94,017 — "
+                       "all of Ignition's hands, including the ones that "
+                       "folded, and 23% of ACR's. So these narrow hard, and "
+                       "a small n here is the data and not the filter.\n\n"
+                       "A draw has to be the player's own: four hearts on "
+                       "the board is not a flush draw, it is a board "
+                       "everybody shares."
+                  ).pack(anchor="w", padx=18, pady=(8, 0))
 
     def _lines_tab(self, nb):
         """

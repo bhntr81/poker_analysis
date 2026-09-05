@@ -72,6 +72,7 @@ leaves a database that is consistent nowhere and looks fine everywhere.
 
 ```
 ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  lines.py
+                                                        ->  strength.py
                                  ->  players.py  ->  stats.py, opponents.py
 ```
 
@@ -120,6 +121,15 @@ Facts that stay true, and that have each been got wrong at least once:
   `table:seat:segment` -- one person for as long as they stay sat there, a
   different one after. Zone is nobody at all. `players.durable` says which,
   and anything that counts identities as people must respect it.
+- **A draw has to be the player's own.** Four hearts on the board is not a
+  flush draw, it is a board everybody shares; a pair entirely on the board
+  is `board pair` and not a pair the player holds. Every test in
+  `strength.py` requires a hole card to be part of the four cards or of the
+  run of ranks.
+- **A made hand does not also have the draw it already made.** A straight
+  that could improve to a better straight is a straight. Reporting the
+  redraw would put made hands into the draw filters, and "how does the pool
+  play a gutshot" would include the hands that already have it.
 - **A class is refused more often than it is given.** `players.classify`
   tests intervals, never point estimates: a rate on 40 hands has a band
   sixteen points wide, so "VPIP 30" and "VPIP 45" are the same measurement.

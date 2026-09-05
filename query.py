@@ -76,6 +76,14 @@ VALUE_FLAGS = {
     "--pot": "pot_type IN ({list})",
     "--facing": "facing IN ({list})",
     "--combo": "combo IN ({list})",
+    # What the hand became once the board came. Only where the cards were
+    # shown, which is most of Ignition and a quarter of ACR -- so these
+    # narrow hard, and `why_empty` says so rather than leaving an empty
+    # table looking like a broken filter.
+    "--made": "made IN ({list})",
+    "--kicker": "kicker IN ({list})",
+    "--fd": "fd IN ({list})",
+    "--sd": "sd IN ({list})",
     "--stake": "bb = {n}",
     "--deep": "eff_bb >= {n}",
     "--short": "eff_bb < {n}",
@@ -136,6 +144,11 @@ SWITCHES = {
     "--fish": "player_class = 'fish'",
     "--vs-reg": "vs_class = 'reg'",
     "--vs-fish": "vs_class = 'fish'",
+    "--drawing": "(fd IS NOT NULL OR sd IS NOT NULL)",
+    # Both at once, which is the hand that plays like neither: a flush draw
+    # with a straight draw beside it is usually a favourite against a pair.
+    "--combo-draw": "(fd IS NOT NULL AND sd IS NOT NULL)",
+    "--shown": "cards IS NOT NULL",
 }
 
 # What a report can be split by. A tracker's value is mostly here: one
@@ -324,7 +337,21 @@ MULTIWAY_NULL = {
                "pot -- a multiway decision has no single other seat",
     "opener_pos": "nobody opened -- that is a limped pot",
 }
+# Columns that are only filled where the cards were actually shown. This is
+# the emptiness most likely to be mistaken for a broken filter: three
+# quarters of decisions have no cards to name a hand from, and a report that
+# does not say so reads as though nobody ever had a set.
+UNSHOWN_NULL = {
+    "made": "the hand is only named where the cards were shown -- all of "
+            "Ignition's, and 23% of ACR's",
+    "kicker": "there is no kicker to judge without the cards",
+    "fd": "a draw cannot be seen in a hand that was never shown",
+    "sd": "a draw cannot be seen in a hand that was never shown",
+}
 ONLY_POSTFLOP = {
+    "made": "a hand becomes something when the flop comes",
+    "fd": "there is nothing to draw to before the flop",
+    "sd": "there is nothing to draw to before the flop",
     "is_ip": "who acts last is only settled once the flop is out",
     "is_pfa": "there is no preflop aggressor until preflop is over",
     "fl_mono": "the flop had not come",
@@ -373,6 +400,10 @@ def why_empty(con, parts):
                     break
             for col, reason in ONLY_POSTFLOP.items():
                 if col in s1 + s2 and pre:
+                    hint = f" -- {reason}"
+                    break
+            for col, reason in UNSHOWN_NULL.items():
+                if not hint and col in s1 + s2:
                     hint = f" -- {reason}"
                     break
             if not hint and "pot_type" in s1 + s2 and pre:
@@ -1028,6 +1059,8 @@ def check(db_path=DB):
         "--site": "acr", "--pos": "BTN", "--street": "flop",
         "--pot": "3bet", "--facing": "bet", "--combo": "AKs",
         "--stake": "0.1", "--deep": "50", "--short": "200",
+        "--made": "top pair", "--kicker": "top", "--fd": "nut",
+        "--sd": "oesd",
         "--players": "6", "--live": "2",
         "--since": midpoint, "--until": midpoint,
         "--vs-player": con.execute(

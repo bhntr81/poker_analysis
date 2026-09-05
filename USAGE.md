@@ -60,6 +60,9 @@ python decisions.py --check
 python lines.py            # how the betting went          (~15 s)
 python lines.py --check
 
+python strength.py         # what each hand is              (~20 s)
+python strength.py --check
+
 python players.py          # who each player is             (~15 s)
 python players.py --check
 
@@ -116,6 +119,36 @@ cut short at the moment the player had to act, so it never contains what
 they did next. `--line` is the whole hand and includes it.
 
 `python lines.py --common flop` lists the lines that actually occur.
+
+---
+
+### Filtering by what the hand is
+
+```bash
+python query.py --made "top pair" --kicker weak     # top pair, bad kicker
+python query.py --made set,trips --street river     # sets and trips
+python query.py --fd nut --sd gutshot               # the nut flush draw with a gutshot
+python query.py --combo-draw --street flop          # both draws at once
+python query.py --drawing --pot 3bet                # any draw in a 3-bet pot
+python strength.py --common                         # what the pool turns up with
+```
+
+| | |
+|---|---|
+| `--made` | high card, board pair, weak pair, under pair, middle pair, top pair, overpair, two pair, trips, set, straight, flush, boat, quads, straight flush |
+| `--kicker` | top, good, weak — only where a pair uses a hole card |
+| `--fd` | nut, second, weak, backdoor |
+| `--sd` | oesd, double gutshot, gutshot |
+
+Four columns rather than one, so a combo draw is a flush draw and a straight
+draw *at once* instead of a fourteenth category, and "pair plus a flush
+draw" is `--made "top pair" --fd nut`.
+
+**These need the cards**, and the cards are known for 20,465 postflop
+decisions out of 94,017 — every Ignition hand including the ones that
+folded, and 23% of ACR's. So they narrow hard, and a small `n` here is the
+data rather than the filter. A `board pair` is a pair on the board that the
+player does not hold; four hearts on the board is not a flush draw.
 
 ---
 
