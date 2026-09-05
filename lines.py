@@ -75,6 +75,11 @@ OVERBET = "o"
 VERBS = "FXCBRA"
 BUCKETS = "smlpo"
 
+# The columns worth a B-tree. `node_sz` and `sized` are not among them:
+# every pattern anybody writes against those starts with a wildcard, so
+# there is no prefix to seek on and the index would be built and never read.
+INDEXED = ("line", "node", "pre", "flop", "turn", "river")
+
 LINE_COLUMNS = ("pre", "flop", "turn", "river",
                 "pre_sz", "flop_sz", "turn_sz", "river_sz",
                 "line", "sized", "node", "node_sz")
@@ -195,6 +200,12 @@ def build(db_path=DB):
     # Ninety thousand separate UPDATEs against an eighty-megabyte database is
     # a minute of work for something that should take a second. Staged in a
     # temporary table and joined instead, which SQLite does in one pass.
+    # Dropped before the update and rebuilt after it. Maintaining six
+    # B-trees while rewriting every row took the rebuild from 8 seconds to
+    # 42; building them once at the end costs three.
+    for col in INDEXED:
+        con.execute(f"DROP INDEX IF EXISTS dec_{col}")
+
     con.execute("CREATE TEMP TABLE staged (" +
                 ", ".join(f"{c} TEXT" for c in LINE_COLUMNS) +
                 ", hand_id TEXT, n INT)")
@@ -210,9 +221,17 @@ def build(db_path=DB):
 
     # The whole argument for strings rather than a graph is that a prefix
     # match is an index seek. Without these it is a scan of every row, which
-    # works, and is slow in a way nobody would connect to a missing index.
-    con.execute("CREATE INDEX IF NOT EXISTS dec_line ON decisions(line)")
-    con.execute("CREATE INDEX IF NOT EXISTS dec_node ON decisions(node)")
+    # works, and is slow in a way nobody would connect to a missing index --
+    # which is exactly what happened: the four per-street columns shipped
+    # with filters and without indexes, and `--flop XBC` scanned all 94,017
+    # rows in 197ms where it now seeks in 3.6ms.
+    #
+    # `node_sz` and `sized` are deliberately not indexed. Every pattern
+    # anybody writes against them starts with a wildcard, so there is no
+    # prefix to seek on and the index would be built and never read.
+    for col in INDEXED:
+        con.execute(f"CREATE INDEX IF NOT EXISTS dec_{col} ON decisions({col})")
+    con.execute("ANALYZE")
     con.commit()
     print(f"{len(acts_by):,} hands, {len(rows):,} decisions")
     return len(rows)

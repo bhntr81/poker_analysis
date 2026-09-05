@@ -81,6 +81,11 @@ columns and every line filter silently matches nothing. Run it after.
 python decisions.py && python lines.py
 ```
 
+`python decisions.py --index` adds the indexes to a database already built.
+Which indexes exist is a measured question and the reasoning is written
+beside them in `decisions.INDEXES`; two candidates were built, measured and
+deleted.
+
 `hands.db` is gitignored and is the only copy. `cp hands.db hands.db.bak`
 before any schema change.
 
@@ -130,6 +135,14 @@ Facts that stay true, and that have each been got wrong at least once:
   on a monotone flop; the flop had not come. Stamping it there let a
   monotone-flop filter select preflop folds in hands that happened to run
   out monotone — 194 "hands", 69 of which had seen a flop.
+- **A slow query is usually a missing index; a slow *view* usually is not.**
+  Thirteen of twenty-two filters scanned the whole table until they were
+  indexed. But the stats table was slow for the opposite reason -- thirty
+  stats each making their own pass -- and an index shaped for it made it
+  15% *slower*. Measure which before reaching for either.
+- **Anything asked once per row of a report is asked once, for all of them.**
+  `stats.rates` and `rates_by` both do this. The failure it prevents has
+  happened twice: an eleven-minute leaderboard and a five-second stats table.
 - **An action tree is a string, and a node is a prefix of one.** The
   betting is written per street as `XBC`, a node is that cut short at the
   moment somebody had to act, and `node GLOB 'RC/X*'` is a B-tree seek.

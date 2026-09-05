@@ -234,6 +234,66 @@ def rate(con, stat, where="1=1", params=()):
     return n, k, p, lo, hi
 
 
+def rates(con, where="1=1", params=(), stats=None):
+    """
+    Every stat under one filter, in one pass over the table instead of thirty.
+
+    `rate` asks its own question, which is right for one stat and wrong for a
+    table of them: thirty stats meant thirty full passes over the same rows,
+    and drawing the unfiltered stats table took five and a half seconds. They
+    all read the same rows and differ only in what they count, so they can be
+    counted together -- one `SUM(CASE WHEN ...)` per stat, one scan.
+
+    This is the same lesson `rates_by` already learned for groups; it had not
+    been applied to the table the window opens on.
+
+    Indexes are not the fix for this. An index was tried -- shaped exactly
+    for the stat predicates -- and made the unfiltered table 15% *slower*,
+    because when a filter selects most of the rows, seeking an index and
+    then fetching each row costs more than reading the table straight
+    through. Scanning once is the answer; scanning thirty times was the
+    problem.
+
+    Returns {key: (n, k)}. Spots-sourced stats are not here: their situation
+    lives in a per-hand table and cannot be counted in the same pass.
+    """
+    stats = [s for s in (stats if stats is not None else STATS) if s.source == "d"]
+    out = {}
+
+    per_dec = [s for s in stats if s.per == "decision"]
+    if per_dec:
+        cols = []
+        for s in per_dec:
+            cols.append(f"SUM(CASE WHEN ({s.chance}) THEN 1 ELSE 0 END)")
+            cols.append(f"SUM(CASE WHEN ({s.chance}) AND ({s.action}) "
+                        f"THEN 1 ELSE 0 END)")
+        row = con.execute(f"SELECT {', '.join(cols)} FROM decisions "
+                          f"WHERE {where}", params).fetchone()
+        for i, s in enumerate(per_dec):
+            out[s.key] = (row[2 * i] or 0, row[2 * i + 1] or 0)
+
+    # A player VPIPs once however many times they act, so these are counted
+    # per player-in-hand. The chance moves inside the MAX rather than into
+    # the WHERE: a group counts as a chance if any of its rows was one,
+    # which is what the per-stat version says with its inner filter.
+    per_hand = [s for s in stats if s.per == "hand"]
+    if per_hand:
+        inner, outer = [], []
+        for i, s in enumerate(per_hand):
+            inner.append(f"MAX(CASE WHEN ({s.chance}) THEN 1 ELSE 0 END) c{i}")
+            inner.append(f"MAX(CASE WHEN ({s.chance}) AND ({s.action}) "
+                         f"THEN 1 ELSE 0 END) k{i}")
+            outer += [f"SUM(c{i})", f"SUM(k{i})"]
+        row = con.execute(
+            f"SELECT {', '.join(outer)} FROM (SELECT {', '.join(inner)} "
+            f"FROM decisions WHERE {where} GROUP BY hand_id, seat)",
+            params).fetchone()
+        for i, s in enumerate(per_hand):
+            out[s.key] = (row[2 * i] or 0, row[2 * i + 1] or 0)
+
+    return out
+
+
 def rates_by(con, stat, group, where="1=1", params=(), skip_null=True):
     """
     One stat, split by any expression, in a single pass over the table.
@@ -396,7 +456,31 @@ def check(db_path=DB):
     for s in added:
         n, k, p, lo, hi = rate(con, s, POOL)
         print(f"  {s.label:24} {fmt(n, k, p, lo, hi)}")
+    # One pass and thirty passes must produce the same numbers. There are now
+    # two ways to count every stat, and two ways to compute one thing is how
+    # they come to disagree -- silently, since both return a plausible
+    # number. Checked over several filters, because the per-hand form counts
+    # differently from the per-decision one and only differs where a player
+    # acted twice.
+    off = 0
+    for where in ("1=1", "is_hero = 1", "street='flop' AND pot_type='3bet'",
+                  "position = 'BB' AND vs_pos = 'BTN'"):
+        batch = rates(con, where)
+        for st in STATS:
+            if st.source == "s":
+                continue
+            n, k, _p, _lo, _hi = rate(con, st, where)
+            if (n, k) != batch[st.key]:
+                off += 1
+                if off <= 3:
+                    print(f"    {st.key} under {where}: "
+                          f"one at a time {(n, k)}, one pass {batch[st.key]}")
+    counted = 4 * len([st for st in STATS if st.source != "s"])
+    print(f"one pass agrees with thirty   {counted - off}/{counted}")
+    if off:
+        fails.append("the batched and per-stat counts disagree")
     con.close()
+
     print()
     print("FAIL: " + ", ".join(fails) if fails else "PASS")
     return not fails

@@ -19,6 +19,7 @@ This table is deliberately wider than any one question needs, because its
 columns are the vocabulary every future question has to be phrased in.
 
     python decisions.py            build, or rebuild
+    python decisions.py --index    just the indexes, on a table already built
     python decisions.py --check    cross-check against spots, PASS or FAIL
 """
 
@@ -61,13 +62,75 @@ CREATE TABLE decisions (
   fl_paired INT, fl_mono INT, fl_twotone INT, fl_conn INT, fl_hi TEXT,
 
   PRIMARY KEY (hand_id, n));
-
-CREATE INDEX dec_player ON decisions(player, site);
-CREATE INDEX dec_spot ON decisions(street, pot_type, facing);
-CREATE INDEX dec_pos ON decisions(site, fmt, position, street);
-CREATE INDEX dec_vs ON decisions(position, vs_pos, pot_type);
-CREATE INDEX dec_hand ON decisions(hand_id);
 """
+
+# The indexes, kept out of the schema so that an existing database can be
+# given them without being rebuilt -- two minutes of derivation to acquire
+# a B-tree is a bad trade, and one nobody makes, so the indexes quietly
+# never arrive.
+#
+# Which ones is a measured question, not a guessed one. Of twenty-two
+# filters the window can actually produce, thirteen scanned the whole table
+# before these; three do afterwards, and each of those three has a reason
+# it cannot be helped. The five below were chosen by running that workload
+# with each candidate present and absent:
+#
+#   dec_when    a date range is how the graph is drawn and how a session is
+#               looked at, and it scanned            146ms -> 3.9ms
+#   dec_hero    hero-or-pool is the most-used filter there is, and by
+#               itself it scanned the whole table    507ms -> 3.1ms
+#   dec_board   the texture flags are five columns nothing indexed
+#                                                    175ms -> 0.4ms
+#   dec_combo   169 values, so it is very selective  156ms -> 0.3ms
+#   dec_allin   an all-in is 0.9% of decisions, which is what makes a
+#               PARTIAL index right: it holds only the 833 rows that are
+#               one, so it costs almost nothing     178ms -> 0.5ms
+#   dec_depth   stack depth and how many are live are ranges, and a range
+#               that selects most of the table cannot be seeked -- but
+#               reading a two-column index end to end still beats reading
+#               a fifty-column table end to end     256ms -> 3.9ms,
+#               and --multiway 224ms -> 13ms
+#
+# Two more were built, measured and thrown away. A wide covering index over
+# the whole situation fixed no query these do not, and cost 7MB. An index
+# shaped exactly for the stat predicates made every quick filter's COUNT
+# five times faster and the stats table itself **15% slower**, reproducibly:
+# when a filter selects most of the rows, seeking an index and fetching each
+# row costs more than reading the table straight through. That table was
+# made fast by scanning once instead of thirty times -- see `stats.rates`.
+INDEXES = """
+CREATE INDEX IF NOT EXISTS dec_player ON decisions(player, site);
+CREATE INDEX IF NOT EXISTS dec_spot ON decisions(street, pot_type, facing);
+CREATE INDEX IF NOT EXISTS dec_pos ON decisions(site, fmt, position, street);
+CREATE INDEX IF NOT EXISTS dec_vs ON decisions(position, vs_pos, pot_type);
+CREATE INDEX IF NOT EXISTS dec_hand ON decisions(hand_id);
+CREATE INDEX IF NOT EXISTS dec_when ON decisions(played_at);
+CREATE INDEX IF NOT EXISTS dec_hero ON decisions(is_hero, street, pot_type);
+CREATE INDEX IF NOT EXISTS dec_board
+    ON decisions(fl_mono, fl_paired, fl_twotone, fl_conn, fl_hi, street);
+CREATE INDEX IF NOT EXISTS dec_combo ON decisions(combo);
+CREATE INDEX IF NOT EXISTS dec_allin ON decisions(allin) WHERE allin = 1;
+CREATE INDEX IF NOT EXISTS dec_depth ON decisions(eff_bb, n_live);
+"""
+
+
+def index(db_path=DB, con=None):
+    """
+    Build the indexes, and tell SQLite how big each one is.
+
+    ANALYZE is the second half and is not optional. Without it the planner
+    guesses at how selective each index is and sometimes guesses badly: a
+    3-bet pot filtered by hero and by an exact flop line picked the hero
+    index over the far narrower line index, and took 61ms instead of 37ms.
+    It reads the indexes once and writes a few kilobytes.
+    """
+    own = con is None
+    con = con or sqlite3.connect(db_path)
+    con.executescript(INDEXES)
+    con.execute("ANALYZE")
+    con.commit()
+    if own:
+        con.close()
 
 
 def flop_texture(board):
@@ -300,6 +363,7 @@ def build(db_path=DB):
     con.executemany(
         "INSERT INTO decisions VALUES ({})".format(",".join("?" * n)), rows)
     con.commit()
+    index(con=con)
     con.close()
     return len(rows)
 
@@ -434,5 +498,9 @@ def check(db_path=DB):
 if __name__ == "__main__":
     if "--check" in sys.argv:
         sys.exit(0 if check() else 1)
+    if "--index" in sys.argv:
+        index()
+        print("indexes built")
+        sys.exit(0)
     print(f"{build()} decisions written\n")
     check()

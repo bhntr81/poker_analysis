@@ -41,7 +41,8 @@ import sys
 from pathlib import Path
 
 import lines
-from stats import BY_KEY, STATS, fmt, rate, rates_by, wilson
+from stats import (BY_KEY, STATS, fmt, rate, rates as stat_rates,
+                   rates_by, wilson)
 
 DB = Path(__file__).parent / "hands.db"
 
@@ -391,6 +392,9 @@ def stats_of(con, where):
     """
     n_dec = con.execute(
         f"SELECT COUNT(*) FROM decisions WHERE {where}").fetchone()[0]
+    # All of them in one pass. Asking each stat its own question meant
+    # thirty scans of the same rows to fill one table.
+    counted = stat_rates(con, where)
     rows = []
     for s in STATS:
         # A spots-sourced stat cannot see a decision's conditions -- there is
@@ -398,9 +402,10 @@ def stats_of(con, where):
         # rather than silently answered over a different population.
         if s.source == "s":
             continue
-        n, k, p, lo, hi = rate(con, s, where)
+        n, k = counted[s.key]
         if not n:
             continue
+        p, lo, hi = wilson(k, n)
         rows.append({"key": s.key, "label": s.label, "group": s.group,
                      "note": s.note, "n": n, "k": k, "pct": 100 * p,
                      "band": 100 * (hi - lo) / 2})
@@ -966,9 +971,24 @@ def usage():
     print("  facing:    " + ", ".join(FACINGS))
 
 
+# Filters allowed to read the whole table, and the reason each cannot be
+# helped. A scan is not automatically a fault -- an index is only worth
+# reading when it narrows -- but the reason has to be written down, or the
+# check degrades into a number nobody questions.
+SCAN_OK = {
+    "--line with sizes":
+        "a pattern for the whole hand with bet sizes in it starts with a "
+        "wildcard -- there is no prefix to seek on, so `sized` is left "
+        "unindexed rather than carrying a B-tree nothing can read",
+    "--node with sizes":
+        "the same, for `node_sz`. The per-street sized columns ARE indexed, "
+        "because `--flop XBmC` has no wildcard in it at all",
+}
+
+
 def check(db_path=DB):
     """
-    Every filter is valid SQL, and every filter actually filters.
+    Every filter is valid SQL, it filters, and it reaches an index.
 
     The second half is the one that matters. A predicate with a typo in a
     column name raises, and gets noticed. A predicate that is merely WRONG
@@ -1035,6 +1055,31 @@ def check(db_path=DB):
     print(f"filters that run and narrow  {checked - len(fails)}/{checked}")
     for f in fails:
         print(f"    {f}")
+
+    # And each one must reach an index rather than read every row. At ninety
+    # thousand decisions a scan is a fifth of a second and nobody notices;
+    # the same scan at three million is seven seconds, so the filter that
+    # quietly stopped using an index has to be caught now, while the corpus
+    # is small enough to hide it.
+    scanning = []
+    for name, argv in cases:
+        where, _l, _p = build(argv)
+        try:
+            plan = " ".join(str(r[3]) for r in con.execute(
+                f"EXPLAIN QUERY PLAN SELECT COUNT(*) FROM decisions "
+                f"WHERE {where}"))
+        except sqlite3.Error:
+            continue                    # already reported by the loop above
+        if "INDEX" not in plan.upper():
+            scanning.append(name)
+    print(f"filters that reach an index  {len(cases) - len(scanning)}/{len(cases)}")
+    for name in scanning:
+        print(f"    {name}: reads every row"
+              f"{' -- ' + SCAN_OK[name] if name in SCAN_OK else ''}")
+    unexplained = [n for n in scanning if n not in SCAN_OK]
+    if unexplained:
+        fails.append("these read the whole table and nothing says why: "
+                     + ", ".join(unexplained))
 
     # A replayed hand must show every action the hand had. A viewer that
     # drops one is worse than no viewer: the reader sees a complete-looking

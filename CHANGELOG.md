@@ -8,6 +8,89 @@ Newest first.
 
 ---
 
+## Reading the table once instead of thirty times
+
+The plan called this step "index the columns filters actually use". Half of
+it was that. The other half turned out to be a query the indexes could not
+help, and the measuring is what told the two apart.
+
+### Measured — thirteen of twenty-two filters read every row
+
+Not a guess: the filters the window can actually produce were each run
+through the query planner. Thirteen scanned the whole table. Nine indexes
+later, two do, and both have a reason written down beside them.
+
+| filter | before | after |
+|---|---|---|
+| hero or pool | 507 ms | 1.8 ms |
+| a date range | 146 ms | 3.1 ms |
+| a board texture | 175 ms | 0.5 ms |
+| a starting hand | 156 ms | 0.3 ms |
+| stack depth over 50bb | 256 ms | 3.9 ms |
+| multiway | 224 ms | 13 ms |
+| in position | 366 ms | 1.7 ms |
+| a stake | 223 ms | 6.4 ms |
+| a flop line, `XBC` | 197 ms | 3.6 ms |
+| the same with a size, `XBmC` | 241 ms | 1.7 ms |
+| facing an overbet | 194 ms | 31 ms |
+
+Two are left. Both are patterns for the *whole hand* with bet sizes in them,
+which necessarily begin with a wildcard: there is no prefix to seek on, so
+those two columns are deliberately not indexed rather than carrying a B-tree
+nothing can read. `query.py --check` now asserts that every filter reaches an
+index and names the ones that cannot, with the reason.
+
+### Fixed — the line columns shipped with filters and without indexes
+
+Yesterday's four per-street columns were filterable and unindexed. Worse, the
+sized ones were nearly left out again on the reasoning that their patterns
+start with wildcards — which is true of the whole-hand columns and false of
+the per-street ones. `--flop XBmC` has no wildcard in it at all.
+
+### Fixed — the stats table asked the same question thirty times
+
+Drawing it took 5.5 seconds unfiltered, and no index made that better,
+because the problem was not how the rows were found. Thirty stats each ran
+their own full pass over the same rows and differed only in what they
+counted. `stats.rates` counts them together in one pass.
+
+| the stats table, filtered by | before | after |
+|---|---|---|
+| everything | 6,800 ms | 1,927 ms |
+| hero | 4,739 ms | 819 ms |
+| pool, 3-bet pots on the flop | 277 ms | 98 ms |
+| BB against a button open | 25 ms | 5 ms |
+
+`rates_by` had already learned this lesson for groups — its comment says it
+is why the first opponent leaderboard took eleven minutes — and it had never
+been applied to the table the window opens on.
+
+There are now two ways to count every stat, which is how two answers to one
+question start to drift, so `stats.py --check` runs both over four different
+filters: **128 of 128 agree exactly**.
+
+### Rejected — an index shaped for the stat predicates
+
+It made every quick filter's count five times faster and the stats table
+itself **15% slower**, reproducibly, measured A/B/A/B. When a filter selects
+most of the rows, seeking an index and then fetching each row costs more than
+reading the table straight through. Built, measured, deleted. A wide covering
+index over the whole situation was dropped the same way: it fixed nothing the
+others did not, and cost 7MB.
+
+### Faster — rebuilding the lines, 42s to 14s
+
+Maintaining ten B-trees while rewriting every row is most of the work.
+Dropped before the update and built once after it.
+
+### Also
+
+`python decisions.py --index` gives an existing database the indexes without
+rebuilding it. Two minutes of derivation to acquire a B-tree is a bad trade
+and nobody makes it, so the indexes quietly never arrive.
+
+---
+
 ## The shape of the betting, and how far this design carries
 
 ### Added — `lines.py`, action sequences as a filter

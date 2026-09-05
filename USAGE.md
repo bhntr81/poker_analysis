@@ -57,8 +57,10 @@ python spots.py --check
 python decisions.py        # one row per decision          (~2 min)
 python decisions.py --check
 
-python lines.py            # how the betting went          (~10 s)
+python lines.py            # how the betting went          (~15 s)
 python lines.py --check
+
+python decisions.py --index   # just the indexes, without rebuilding
 ```
 
 `lines` writes onto `decisions`, so it goes last and it goes again every
