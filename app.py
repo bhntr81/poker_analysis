@@ -77,6 +77,11 @@ POT_TYPES = ("unopened", "limped", "raised", "3bet", "4bet")
 # Who the other seat is. "The big blind against a button open" is the shape
 # most real questions have, and it needs both halves of the matchup named.
 VS_SIDE = [("--vs-hero", "vs me"), ("--vs-pool", "vs the pool")]
+# What kind of player, on each side of the matchup. A class is only given to
+# somebody there is enough evidence about; everybody else is "unknown" and
+# is selected by neither of these, which is the point of them.
+WHO = [("--reg", "the player is a reg"), ("--fish", "the player is a fish"),
+       ("--vs-reg", "against a reg"), ("--vs-fish", "against a fish")]
 SITUATIONS = [("--ip", "in position"), ("--oop", "out of position"),
               ("--pfa", "was the raiser"), ("--vs-pfa", "facing the raiser"),
               ("--multiway", "multiway"), ("--headsup", "heads up"),
@@ -86,6 +91,8 @@ SITUATIONS = [("--ip", "in position"), ("--oop", "out of position"),
 OPPOSITES = {"--hero": "--pool", "--pool": "--hero", "--ip": "--oop",
              "--oop": "--ip", "--multiway": "--headsup",
              "--headsup": "--multiway",
+             "--reg": "--fish", "--fish": "--reg",
+             "--vs-reg": "--vs-fish", "--vs-fish": "--vs-reg",
              "--vs-hero": "--vs-pool", "--vs-pool": "--vs-hero"}
 
 
@@ -1001,6 +1008,22 @@ class FilterDialog(tk.Toplevel):
         self._grid(page, [(lambda parent, f=f, t=t: self._pick(
             parent, t, *self._flag_item(f)))
             for f, t in (("--hero", "me"), ("--pool", "the pool"))])
+
+        self._heading(page, "what kind of player")
+        self._grid(page, [(lambda parent, f=f, t=t: self._pick(
+            parent, t, *self._flag_item(f))) for f, t in WHO])
+        ttk.Label(page, style="Dim.TLabel", wraplength=980, justify="left",
+                  text="A reg plays a third of hands or fewer and raises at "
+                       "least one in ten. A fish is loose or passive: over a "
+                       "third of hands, or almost never raising while still "
+                       "coming in often. Everybody there is not enough "
+                       "evidence about is unknown and neither of these "
+                       "selects them — which is why the two do not add up "
+                       "to the whole pool.\n\nOnly ACR names people. An "
+                       "Ignition ring seat is one player for as long as they "
+                       "stay sat there and a different one after; Zone names "
+                       "nobody at all."
+                  ).pack(anchor="w", padx=18, pady=(4, 0))
 
     def _actions_tab(self, nb):
         page = self._page(nb, "Actions")

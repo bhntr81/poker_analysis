@@ -72,8 +72,11 @@ leaves a database that is consistent nowhere and looks fine everywhere.
 
 ```
 ignition.py / acr.py  ->  spots.py  ->  decisions.py  ->  lines.py
-                                                 ->  stats.py, opponents.py
+                                 ->  players.py  ->  stats.py, opponents.py
 ```
+
+`players.py` reads `spots` and writes onto `decisions`, so it goes after
+both and again after either is rebuilt.
 
 `lines.py` writes onto `decisions`, so rebuilding `decisions` empties its
 columns and every line filter silently matches nothing. Run it after.
@@ -112,6 +115,16 @@ Facts that stay true, and that have each been got wrong at least once:
 - **`fmt='RING'` no longer identifies a pool.** ACR ring hands match
   it too. Every population query needs `site=` as well, or it is averaging
   two different games into a number that describes neither.
+- **Only ACR has people.** ACR writes the screen name and it is the same
+  player next week at another stake. An Ignition ring identity is
+  `table:seat:segment` -- one person for as long as they stay sat there, a
+  different one after. Zone is nobody at all. `players.durable` says which,
+  and anything that counts identities as people must respect it.
+- **A class is refused more often than it is given.** `players.classify`
+  tests intervals, never point estimates: a rate on 40 hands has a band
+  sixteen points wide, so "VPIP 30" and "VPIP 45" are the same measurement.
+  53 regs and 134 fish out of 1,295 identities; the rest are `unknown`, and
+  unknown is an answer.
 - **Ignition is the only site that shows folded hands.** `population.py`,
   `walk.py` and `postflop.py` are pinned to `site='ignition'` because their
   premise is revealed ranges, and ACR reveals 23%.

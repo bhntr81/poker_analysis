@@ -60,6 +60,9 @@ python decisions.py --check
 python lines.py            # how the betting went          (~15 s)
 python lines.py --check
 
+python players.py          # who each player is             (~15 s)
+python players.py --check
+
 python decisions.py --index   # just the indexes, without rebuilding
 ```
 
@@ -113,6 +116,31 @@ cut short at the moment the player had to act, so it never contains what
 they did next. `--line` is the whole hand and includes it.
 
 `python lines.py --common flop` lists the lines that actually occur.
+
+---
+
+### Filtering by what kind of player
+
+```bash
+python query.py --reg --vs-reg          # how regulars play each other
+python query.py --reg --vs-fish         # and how they play a recreational
+python query.py --vs-player NAME        # against one named opponent
+python players.py --list reg            # who the regs are
+python players.py NAME                  # one player in full
+```
+
+A **reg** plays a third of hands or fewer and raises at least one in ten. A
+**fish** is loose or passive — over a third of hands, or almost never
+raising while still coming in often. Everybody there is not enough evidence
+about is **unknown**, and neither filter selects them, so the two do not add
+up to the pool.
+
+`--vs-reg` and `--vs-fish` only mean anything while one opponent is left:
+in a three-way pot there is no "the other player". They select heads-up
+decisions by construction.
+
+Only ACR names people. An Ignition ring identity lasts as long as somebody
+stays in the seat, and Zone names nobody.
 
 ---
 

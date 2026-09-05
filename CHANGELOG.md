@@ -8,6 +8,80 @@ Newest first.
 
 ---
 
+## Who is playing, which every number here had been averaging over
+
+### Added — `players.py`, a row per player instead of a row per hand
+
+People play completely differently against a recreational player than
+against each other. Every pool figure in this tracker mixed the two, and a
+number that mixes them describes neither. Separating them is the largest
+single thing Hand2Note does that this could not.
+
+It is a `GROUP BY` over `spots`, which already carried VPIP, PFR, 3-bet,
+fold-to-3-bet, WWSF, WTSD and money as per-hand flags. Nothing new is
+measured; what is new is that it is measured per person. 1,295 identities,
+759 of them people.
+
+`--reg`, `--fish`, `--vs-reg`, `--vs-fish` and `--vs-player NAME` are the
+filters that come out of it. `--reg --vs-reg` is how regulars play each
+other.
+
+### The rule refuses more often than it decides
+
+A rate on 40 hands has an interval sixteen points wide, so "VPIP 30" and
+"VPIP 45" are the same measurement and a rule reading point estimates would
+sort half the pool at random. Every clause tests an interval:
+
+* **fish** if VPIP cannot plausibly be under 34%, or if the player almost
+  never raises (PFR interval entirely below 10%) while still entering a
+  fifth of pots
+* **reg** if VPIP cannot plausibly be over 33% *and* PFR cannot plausibly be
+  under 10%
+* **unknown** otherwise, which is 1,108 of the 1,295
+
+Split each player's hands arbitrarily in two and classify twice: of 116
+identities with 100+ hands, **89 identical, 27 refused on one half, and not
+one contradicted** — never a reg on one half and a fish on the other.
+
+### Only ACR has people
+
+ACR writes the screen name and it is the same player next week at another
+stake. An Ignition ring identity is `table:seat:segment` — one person for as
+long as they stay sat there, a different one after. Zone is nobody at all.
+Those rows are kept and marked `durable = 0`, because a read true for a
+session is still a read, but nothing may count them as people.
+
+### Fixed — the opponent who never gets a turn
+
+`vs_player` was first filled from a liveness walk over who was seen to act,
+which loses the player who never acts: heads up, when the small blind folds
+immediately, the big blind wins without acting and appears nowhere in
+`decisions`. **3,848 decisions had no opponent recorded for that reason.**
+Taken from `spots` instead — one row per player per hand — which also
+already excludes the seats that are at the table and not in the hand.
+
+A second, smaller error hid behind it. The check compared `vs_player`
+against `n_live`, so on Zone — where nobody has a name — a missing name
+looked like a missing opponent, and 2,189 rows disagreed for no reason.
+There is now a `vs_seat` column, always known when there is one opponent,
+and it is what the check reads. The two derivations now agree on
+**94,016 of 94,017** decisions; the one exception is a 3-handed Zone hand
+whose entire history is the button folding, which cannot be a three-player
+hand however it is counted.
+
+### Measured — and there is not yet enough data to use it
+
+The machinery is right and the corpus is too small. Regs steal 41.1% ± 4.1
+against regs and 51.0% ± 7.7 against fish, which is the biggest gap of the
+eight stats compared and **still does not clear its interval**. Every other
+pair overlaps by more.
+
+That is the honest state: the filter exists, it is correct, and answering
+with it needs hands rather than code. 59% of ACR decisions are by somebody
+we have 100+ hands on, and only 8 players anywhere have 500.
+
+---
+
 ## Reading the table once instead of thirty times
 
 The plan called this step "index the columns filters actually use". Half of

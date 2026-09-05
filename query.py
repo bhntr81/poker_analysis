@@ -60,6 +60,10 @@ FACINGS = ("unopened", "open", "3bet", "4bet", "5bet+",
 VALUE_FLAGS = {
     "--site": "site = {v}",
     "--player": "player = {v}",
+    # The other seat, by name. Only meaningful while one opponent is left --
+    # in a three-way pot there is no "the other player" -- so this selects
+    # heads-up decisions by construction.
+    "--vs-player": "vs_player = {v}",
     "--pos": "position IN ({list})",
     # The matchup. `--pos BB --vs BTN --pot 3bet` is "big blind against a
     # button open, in a 3-bet pot", which is the shape most real questions
@@ -124,6 +128,14 @@ SWITCHES = {
     "--vs-hero": "vs_hero = 1",
     "--vs-pool": "vs_hero = 0",
     "--standard": "standard = 1",
+    # Who is playing, which is the distortion this whole tracker averaged
+    # over until now: people isolate wider and value-bet thinner against a
+    # recreational player, so a pool number that mixes the two describes
+    # neither. `--reg --vs-reg` is how regulars play each other.
+    "--reg": "player_class = 'reg'",
+    "--fish": "player_class = 'fish'",
+    "--vs-reg": "vs_class = 'reg'",
+    "--vs-fish": "vs_class = 'fish'",
 }
 
 # What a report can be split by. A tracker's value is mostly here: one
@@ -1018,6 +1030,9 @@ def check(db_path=DB):
         "--stake": "0.1", "--deep": "50", "--short": "200",
         "--players": "6", "--live": "2",
         "--since": midpoint, "--until": midpoint,
+        "--vs-player": con.execute(
+            "SELECT vs_player FROM decisions WHERE vs_player IS NOT NULL "
+            "LIMIT 1").fetchone()[0],
         # Line patterns that really occur, for the same reason the date is
         # taken from the data: a pattern nobody played would fail the
         # "actually narrows" half of this check without anything being wrong.
